@@ -1,0 +1,15 @@
+.godot/
+.test_user/
+*.tmp
+
+# Local tools and exported builds
+/.codex/
+/build/
+/Godot_v*/
+/Godot_v*.zip
+
+# Local credentials
+.env
+.env.*
+!.env.example
+export_credentials.cfg

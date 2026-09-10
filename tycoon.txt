@@ -1,0 +1,575 @@
+Dann würde ich das Spiel zunächst als **geschlossenen Wirtschaftskreislauf** skizzieren. Wichtig ist, dass fast jedes System mindestens zwei andere Systeme beeinflusst und nicht nur „+10 % Produktion“ liefert.
+
+# Grundidee
+
+Du leitest eine kleine Werkstatt für magische Artefakte in einer mittelalterlichen Fantasywelt.
+
+Du beginnst als unbekannter Handwerker mit einem kleinen Grundstück, wenigen Werkzeugen und vielleicht einem Lehrling. Durch Aufträge, Handel, Forschung und deinen Ruf wächst daraus eine berühmte Werkstatt oder sogar eine ganze magische Manufaktur.
+
+Der zentrale Kreislauf wäre:
+
+**Aufträge → Artefakte → Einnahmen & Ruf → Werkstattausbau → neue Spezialisten & Forschung → bessere/neue Artefakte → anspruchsvollere Aufträge**
+
+Dabei muss sich der Spieler entscheiden:
+
+**Spezialist werden**
+oder
+**mehrere Traditionen kombinieren**.
+
+---
+
+# 1. Das Gelände
+
+Das Grundstück ist die physische Begrenzung des Unternehmens.
+
+Zu Beginn vielleicht:
+
+**kleines Haus – Werkstatt – Hof – Garten**
+
+Später kauft der Spieler angrenzende Flächen oder besondere Grundstücke.
+
+Dabei hat Gelände Eigenschaften:
+
+**Straße** → Kunden und Handel
+**Wald** → Druiden/Hexen
+**Quelle** → Priester/Alchemie/Druiden
+**Hügel** → Astral- und Windmagie
+**Fels** → Runen/Keller
+**Ruine** → seltene Forschung
+**Friedhof** → Geister/Tod
+
+Damit wird die Frage:
+
+> „Welches Grundstück kaufe ich?“
+
+bereits eine strategische Entscheidung.
+
+---
+
+# 2. Gebäude und Außenanlagen
+
+Auf dieses Gelände setzt der Spieler seine Werkstatt.
+
+Es gibt drei grobe Kategorien.
+
+**Allgemeine Gebäude**
+
+Werkstatt, Lager, Laden, Wohnhaus, Schreibstube, Stall usw.
+
+**Fachspezifische Einrichtungen**
+
+Magierturm, Kräuterhaus, Schrein, Alchemielabor, Druidenhain usw.
+
+**Hybridanlagen**
+
+Sie entstehen erst durch das Zusammenspiel verschiedener Schulen.
+
+Beispiel:
+
+**Runenlabor + Druidenhain**
+
+ermöglicht:
+
+**Runengewächshaus**
+
+Und darin entstehen eventuell Artefakte, die weder ein reiner Magier noch ein reiner Druide herstellen kann.
+
+Das würde ich zu einem der großen Reize des Spiels machen.
+
+---
+
+# 3. Personal
+
+Die Gebäude allein können nichts.
+
+Du benötigst Spezialisten.
+
+Ein Mitarbeiter hätte beispielsweise vier Hauptwerte:
+
+**Fachgebiet**
+
+Magie, Hexerei, Druidentum, Priesterschaft, Alchemie usw.
+
+**Können**
+
+Lehrling → Geselle → Meister → Großmeister
+
+**Eigenschaften**
+
+Gewissenhaft, experimentierfreudig, abergläubisch, gierig, fromm usw.
+
+**Beziehungen**
+
+Ein Druide arbeitet vielleicht hervorragend mit einer Hexe zusammen.
+
+Ein fanatischer Priester dagegen überhaupt nicht.
+
+Damit beeinflusst Personal sowohl Produktion als auch Forschung.
+
+Aber ich würde bewusst darauf verzichten, jeden Mitarbeiter ständig essen, schlafen und auf die Toilette schicken zu müssen.
+
+---
+
+# 4. Materialien
+
+Hier beginnt die eigentliche Artefaktherstellung.
+
+Nicht nur:
+
+> 2 Eisen + 3 Kristalle
+
+sondern Materialien besitzen **Eigenschaften**.
+
+Ein Mondkristall könnte beispielsweise besitzen:
+
+**Licht 3
+Speicherung 5
+Mond 8
+Stabilität 4**
+
+Silber:
+
+**Leitung 5
+Reinheit 7
+Geisterabwehr 4**
+
+Druidenharz:
+
+**Leben 7
+Bindung 6
+Regeneration 4**
+
+Dadurch können unterschiedliche Materialien dieselbe Funktion erfüllen.
+
+---
+
+# 5. Artefaktentwurf
+
+Das wird wahrscheinlich das Herzstück des Spiels.
+
+Ein Artefakt besteht beispielsweise aus:
+
+**Grundkörper**
+
+Ring, Amulett, Stab, Lampe, Truhe, Werkzeug, Waffe …
+
+*
+
+**Kraftquelle**
+
+Kristall, Geist, Gebet, Naturkraft, Essenz …
+
+*
+
+**Wirkung**
+
+Licht, Wärme, Schutz, Heilung, Speicherung …
+
+*
+
+**Stabilisierung**
+
+Rune, Siegel, Kräuter, Metall, Ritual …
+
+*
+
+eventuell
+
+**Zusatzwirkung**
+
+Das Resultat könnte dann beispielsweise sein:
+
+### Wärmestein Mk III
+
+Wärmeleistung: 72
+Laufzeit: 19 Stunden
+Stabilität: 94 %
+Herstellung: 2,4 Tage
+Kosten: 31 Silber
+
+Nebenwirkung:
+
+> zieht gelegentlich Feuersalamander an.
+
+😄
+
+Damit können Spieler wirklich **eigene Produktlinien** entwickeln.
+
+---
+
+# 6. Rezeptbuch
+
+Sobald ein Artefakt erfolgreich entwickelt wurde, kann der Spieler es speichern.
+
+Aus:
+
+> experimenteller Wärmestein
+
+wird:
+
+**Wärmestein Modell II**
+
+Dann muss der Spieler ihn nicht jedes Mal neu konstruieren.
+
+Er kann sagen:
+
+> Halte mindestens 10 Stück auf Lager.
+
+Damit übernimmt die Werkstatt Routineproduktion automatisch.
+
+Das ist enorm wichtig gegen Micromanagement.
+
+---
+
+# 7. Aufträge
+
+Jetzt kommen die Kunden.
+
+Und ich würde ihnen **Probleme statt konkrete Gegenstände** geben.
+
+Nicht:
+
+> „Bringe mir einen Schutzring +3.“
+
+Sondern:
+
+> „In meiner Scheune verschwinden jede Nacht Hühner, obwohl die Tür verschlossen ist.“
+
+Jetzt muss der Spieler herausfinden:
+
+Geist?
+
+Tier?
+
+Fluch?
+
+Magischer Dieb?
+
+Und eine Lösung anbieten.
+
+Vielleicht:
+
+**Druide**
+
+Tierabwehr-Totem
+
+oder:
+
+**Hexe**
+
+Geisterfalle
+
+oder:
+
+**Magier**
+
+Überwachungsrune
+
+Der Kunde verlangt also ein Ergebnis — der Spieler konstruiert die Lösung.
+
+Das gibt dem Artefaktsystem einen Sinn.
+
+---
+
+# 8. Kunden und Märkte
+
+Es gibt wahrscheinlich zwei große Einkommensquellen.
+
+**Laden**
+
+Standardprodukte:
+
+Heiltränke
+Lichtsteine
+Wärmesteine
+einfache Amulette
+
+Automatisierbares Einkommen.
+
+**Auftragswerkstatt**
+
+Einzelanfertigungen.
+
+Viel mehr Gewinn und Ruf, aber auch Risiko.
+
+Das verhindert, dass der Spieler tausendmal denselben Auftrag durchführen muss.
+
+---
+
+# 9. Ruf
+
+Ich würde keinen einzigen globalen Rufwert verwenden.
+
+Es gibt zunächst einen **allgemeinen Bekanntheitsgrad**.
+
+Der bestimmt:
+
+> Grundstücke
+> größere Kunden
+> Anzahl der Bewerber
+> Händler
+> besondere Aufträge
+
+Daneben gibt es Fraktionsruf.
+
+Zum Beispiel:
+
+**Bevölkerung – Adel – Kirche – Magiergilde – Hexenzirkel – Druiden – Händler**
+
+Dadurch kann eine Werkstatt gleichzeitig sehr berühmt und bei bestimmten Gruppen vollkommen verhasst sein.
+
+Das eröffnet schöne Situationen:
+
+> „Der König kennt unsere Artefakte – aber kein Druide verkauft uns mehr Mondkraut.“
+
+---
+
+# 10. Forschung
+
+Hier kommt deine Spezialisierung richtig zum Tragen.
+
+Ich würde vier Stufen verwenden:
+
+**Grundwissen**
+
+leicht erreichbar.
+
+**Fachwissen**
+
+erfordert entsprechende Werkstatt.
+
+**Meisterwissen**
+
+große Investition.
+
+**Großmeisterwissen**
+
+extreme Spezialisierung.
+
+Ein Magier-Großmeisterbetrieb könnte Dinge herstellen, die ein breit aufgestellter Betrieb niemals schafft.
+
+Aber:
+
+Der Mischbetrieb erhält **Hybridforschung**.
+
+Beispielsweise:
+
+Magie + Druidentum
+→ lebende Runen
+
+Hexerei + Priesterschaft
+→ gebundene Segnungen/Flüche
+
+Druidentum + Alchemie
+→ wachsende Elixierpflanzen
+
+Magie + Alchemie
+→ Mana-Batterien
+
+Und ein Teil davon sollte verborgen sein.
+
+---
+
+# 11. Wirtschaft
+
+Jetzt braucht das Ganze Druck.
+
+Einnahmen:
+
+**Verkäufe + Aufträge + Verträge**
+
+Ausgaben:
+
+**Löhne + Materialien + Gebäude + Grundstück + Forschung + Wartung**
+
+Dadurch entstehen echte Entscheidungen.
+
+Beispielsweise:
+
+> Ich könnte einen Meistermagier einstellen.
+
+Aber er verlangt 80 Silber pro Monat.
+
+Oder:
+
+> Ich investiere das Geld in einen neuen Kräutergarten.
+
+Beides eröffnet andere Möglichkeiten.
+
+---
+
+# 12. Ereignisse
+
+Damit der Betrieb nicht nur optimal dahinläuft, kommen Probleme.
+
+Zum Beispiel:
+
+> Kristallmine eingestürzt.
+
+Kristallpreise steigen.
+
+Oder:
+
+> Die Kirche verbietet Geisterartefakte.
+
+Oder:
+
+> außergewöhnlich kalter Winter.
+
+Plötzlich explodiert die Nachfrage nach Wärmesteinen.
+
+Oder:
+
+> ein von dir gebautes Artefakt hat einen Unfall verursacht.
+
+Jetzt drohen:
+
+**Rückruf – Schadensersatz – Rufverlust – Untersuchung**
+
+Das würde deine bisherigen Entscheidungen plötzlich wichtig machen.
+
+---
+
+# 13. Wachstum des Unternehmens
+
+Ich sehe ungefähr diese Entwicklung:
+
+**Dorfbastler**
+
+ein Raum, wenige Produkte.
+
+↓
+
+**Artefaktschmied**
+
+eigene Werkstatt, Lehrlinge.
+
+↓
+
+**Meisterwerkstatt**
+
+mehrere Fachgebiete.
+
+↓
+
+**Manufaktur**
+
+automatisierte Standardproduktion.
+
+↓
+
+**Berühmtes Artefakthaus**
+
+Adel, Städte und Gilden bestellen.
+
+↓
+
+**Legendäre Werkstatt**
+
+einzigartige Artefakte, politische Bedeutung, Großmeister.
+
+Aber wichtig:
+
+Die Werkstatt muss nicht zwangsläufig riesig werden.
+
+Ein Spieler könnte auch eine winzige, extrem spezialisierte Meisterwerkstatt betreiben.
+
+> Nur drei Artefakte im Jahr — aber jedes kostet ein Vermögen.
+
+Das sollte genauso eine mögliche Siegstrategie sein wie eine große Manufaktur.
+
+---
+
+# Das eigentliche Zusammenspiel
+
+Und jetzt wird es interessant:
+
+**Gelände**
+
+bestimmt mögliche Gebäude.
+
+↓
+
+**Gebäude**
+
+bestimmen verfügbare Verfahren.
+
+↓
+
+**Personal**
+
+bestimmt, wie gut diese Verfahren funktionieren.
+
+↓
+
+**Forschung**
+
+erschließt neue Möglichkeiten.
+
+↓
+
+**Materialien**
+
+bestimmen Eigenschaften und Kosten.
+
+↓
+
+**Artefakte**
+
+lösen Kundenprobleme.
+
+↓
+
+**Aufträge**
+
+bringen Geld und Ruf.
+
+↓
+
+**Geld**
+
+finanziert neue Gebäude und Personal.
+
+↓
+
+**Ruf**
+
+erschließt neue Grundstücke, Kunden und Spezialisten.
+
+↓
+
+Und damit beginnt der Kreislauf auf höherem Niveau erneut.
+
+---
+
+## Der zentrale Designgrundsatz
+
+Ich würde unsere bisherige Idee auf diesen Satz reduzieren:
+
+> **Der Spieler baut keine Fabrik, sondern entwickelt eine magische Handwerkstradition.**
+
+Das unterscheidet das Spiel meiner Meinung nach ziemlich deutlich von einem gewöhnlichen Produktions-Tycoon.
+
+Und daraus ergeben sich bereits **drei gute Spielertypen**:
+
+**Der Meister**
+
+> „Ich baue die besten Runenartefakte des Königreichs.“
+
+Maximale Spezialisierung.
+
+**Der Kaufmann**
+
+> „Meine Wärmesteine werden in fünf Städten verkauft.“
+
+Effiziente Produktion und Handel.
+
+**Der Forscher**
+
+> „Was passiert eigentlich, wenn ich Druidenmagie, Hexerei und Alchemie kombiniere?“
+
+Hybridforschung und Entdeckung.
+
+Alle drei spielen dasselbe Spiel — aber mit völlig unterschiedlichen Werkstätten.
+
+Als nächsten Schritt würde ich tatsächlich **nicht noch mehr Features sammeln**, sondern einen kleinen beispielhaften Spielbeginn durchspielen: **erste 10–20 Spieltage, Anfangsgrundstück, erste Gebäude, erste drei Mitarbeiter, erste Materialien und vielleicht fünf Kundenaufträge**. Daran würden wir sehr schnell sehen, ob der Kernloop wirklich Spaß macht.

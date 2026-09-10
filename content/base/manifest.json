@@ -1,0 +1,9 @@
+{
+  "id": "base",
+  "version": "0.1.0",
+  "game_version": "0.1.0",
+  "priority": 0,
+  "dependencies": [],
+  "overrides": []
+}
+

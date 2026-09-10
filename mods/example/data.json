@@ -1,0 +1,8 @@
+{
+  "modifiers": [
+    {"id":"example:comet_etched","name_de":"Kometengeätzt","name_en":"Comet-Etched","base_cost":16,"stats":{"power":6,"prestige":6},"unlocked":true}
+  ],
+  "materials": [
+    {"id":"example:star_iron","name_de":"Sterneisen","name_en":"Star Iron","price":24,"quality":0.84,"stats":{"power":5,"stability":5},"tags":["rare","metal"]}
+  ]
+}
