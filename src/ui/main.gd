@@ -36,8 +36,12 @@ var debug_label: Label
 var selected_room_type := "base:workshop"
 var selected_station_type := "base:arcane_bench"
 var placement_mode := "room"
+var workshop_show_grid := false
 var start_overlay: ColorRect
 var start_content: VBoxContainer
+var research_group := "base:arcane"
+var research_filter := "all"
+var selected_research := "base:arcane_foundations"
 var live_research_bars: Dictionary = {}
 var live_research_details: Dictionary = {}
 var live_production_widgets: Dictionary = {}
@@ -67,7 +71,7 @@ func _process(delta: float) -> void:
 	_update_debug()
 	if simulation.current_day() != last_day:
 		last_day = simulation.current_day()
-		var autosave_result := SaveSystem.save_game(simulation, "autosave")
+		var autosave_result := SaveSystem.save_game(simulation, "autosave_0_3_1")
 		if not bool(autosave_result.ok):
 			_show_result(autosave_result)
 		if TAB_KEYS[tabs.current_tab] not in ["blueprints", "production"]:
@@ -124,9 +128,9 @@ func _build_shell() -> void:
 	status_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	status_label.vertical_alignment = VERTICAL_ALIGNMENT_CENTER
 	action_bar.add_child(status_label)
-	_button(action_bar, _t("save"), func() -> void: _show_result(SaveSystem.save_game(simulation, "manual")))
-	_button(action_bar, _t("load"), func() -> void: _load_slot("manual"))
-	_button(action_bar, "Quick", func() -> void: _show_result(SaveSystem.save_game(simulation, "quick")))
+	_button(action_bar, _t("save"), func() -> void: _show_result(SaveSystem.save_game(simulation, "manual_0_3_1")))
+	_button(action_bar, _t("load"), func() -> void: _load_slot("manual_0_3_1"))
+	_button(action_bar, "Quick", func() -> void: _show_result(SaveSystem.save_game(simulation, "quick_0_3_1")))
 	_button(action_bar, _t("loan"), func() -> void: _run(GameCommand.take_loan()))
 
 	tabs = TabContainer.new()
@@ -210,10 +214,15 @@ func _show_start_menu() -> void:
 	load_title.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
 	load_title.add_theme_font_size_override("font_size", 19)
 	start_content.add_child(load_title)
-	for slot: String in ["manual", "quick", "autosave"]:
-		var slot_name: String = str({"manual":"Manuell", "quick":"Quick", "autosave":"Autosave"}.get(slot, slot))
+	var save_slots := GridContainer.new()
+	save_slots.columns = 3
+	save_slots.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	start_content.add_child(save_slots)
+	for slot: String in ["manual_0_3_1", "quick_0_3_1", "autosave_0_3_1", "manual_0_3", "quick_0_3", "autosave_0_3", "manual", "quick", "autosave"]:
+		var slot_name: String = str({"manual_0_3_1":"Manuell 0.3.1" if language == "de" else "Manual 0.3.1", "quick_0_3_1":"Quick 0.3.1", "autosave_0_3_1":"Autosave 0.3.1", "manual_0_3":"Manuell 0.3 (alt)" if language == "de" else "Manual 0.3 (legacy)", "quick_0_3":"Quick 0.3 (alt)" if language == "de" else "Quick 0.3 (legacy)", "autosave_0_3":"Autosave 0.3 (alt)" if language == "de" else "Autosave 0.3 (legacy)", "manual":"Alt / Legacy", "quick":"Alt Quick / Legacy Quick", "autosave":"Alt Autosave / Legacy Autosave"}.get(slot, slot))
 		var captured_slot := slot
-		var button := _button(start_content, str(slot_name), func() -> void: _load_from_start(captured_slot))
+		var button := _button(save_slots, str(slot_name), func() -> void: _load_from_start(captured_slot))
+		button.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 		button.custom_minimum_size.y = 42
 
 func _show_property_choices() -> void:
@@ -388,7 +397,7 @@ func _refresh_live_values() -> void:
 		if rate <= 0.0:
 			label.text = "Wartet auf Forscher" if language == "de" else "Waiting for researcher"
 		else:
-			var ramp := int(simulation.state.research_ramp)
+			var ramp := int(simulation.state.research_teams[simulation.research_team_for(str(project_id))].ramp)
 			label.text = (("%.2f/Tick · Anlauf noch %d h · ca. %d h" if language == "de" else "%.2f/tick · ramp %d h · about %d h") % [rate, ramp, eta])
 	for station_id: Variant in live_production_widgets.keys():
 		var widgets: Dictionary = live_production_widgets[station_id]
@@ -429,8 +438,12 @@ func _build_overview(root: VBoxContainer) -> void:
 	var profession_id := str(simulation.state.get("player_profession", ""))
 	_info(left, ("Werkstattprofession: " if language == "de" else "Workshop profession: ") + (_name(registry.get_def("disciplines", profession_id)) if not profession_id.is_empty() else ("noch nicht festgelegt" if language == "de" else "not established yet")))
 	_info(left, "Lebenszeitumsatz: %s" % _money(float(simulation.state.lifetime_revenue)) if language == "de" else "Lifetime revenue: %s" % _money(float(simulation.state.lifetime_revenue)))
-	var active_id := str(simulation.state.active_research)
-	_info(left, ("Forschung: " if language == "de" else "Research: ") + (_name(registry.get_def("research", active_id)) if not active_id.is_empty() else "—"))
+	var active_projects: PackedStringArray = []
+	for team_id: int in (simulation.state.research_teams as Array).size():
+		var project := registry.get_def("research", str(simulation.state.research_teams[team_id].project_id))
+		if not project.is_empty():
+			active_projects.append("Team %d: %s" % [team_id + 1, _name(project)])
+	_info(left, ("Forschung: " if language == "de" else "Research: ") + (" · ".join(active_projects) if not active_projects.is_empty() else "—"))
 	_info(left, "Aktive Produktionslinien: %d" % (simulation.state.production_lines as Dictionary).values().filter(func(line: Dictionary) -> bool: return bool(line.get("enabled", false))).size() if language == "de" else "Active production lines: %d" % (simulation.state.production_lines as Dictionary).values().filter(func(line: Dictionary) -> bool: return bool(line.get("enabled", false))).size())
 	_section(left, "Kundenansehen" if language == "de" else "Customer Standing")
 	for customer: Dictionary in registry.all("customers"):
@@ -439,15 +452,8 @@ func _build_overview(root: VBoxContainer) -> void:
 	var right := VBoxContainer.new()
 	right.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	columns.add_child(right)
-	_section(right, "Siegpfade" if language == "de" else "Victory Paths")
-	var tech_tier := 0
-	for project: Dictionary in registry.all("research"):
-		if bool((simulation.state.unlocked as Dictionary).get(str(project.id), false)):
-			tech_tier = maxi(tech_tier, int(project.get("tier", 0)))
-	_progress_row(right, "Technologieführung" if language == "de" else "Technology Leadership", tech_tier, 3)
-	_progress_row(right, "Wirtschaft: Kapital" if language == "de" else "Economy: Cash", float(simulation.state.cash), 22000.0)
-	var hybrid_done := (simulation.state.completed_contracts as Array).has("base:hybrid_showcase")
-	_progress_row(right, "Hybrid-Meisterwerk" if language == "de" else "Hybrid Masterpiece", 1 if hybrid_done else 0, 1)
+	_build_company_progress(right)
+	_build_final_projects(root)
 	_section(root, "Letzte Ereignisse" if language == "de" else "Recent Events")
 	if simulation.recent_events.is_empty():
 		_info(root, "Noch keine Ereignisse." if language == "de" else "No events yet.")
@@ -458,52 +464,73 @@ func _build_research(root: VBoxContainer) -> void:
 	live_research_bars.clear()
 	live_research_details.clear()
 	_heading(root, _t("research"))
-	_info(root, "Nur besetzte Forschertische leisten Arbeit. Ein Projektwechsel verursacht 12 Arbeitsstunden Anlaufzeit." if language == "de" else "Only staffed research desks generate progress. Switching projects causes a 12-work-hour ramp-up period.")
-	if str(simulation.state.get("player_profession", "")).is_empty():
-		_info(root, "Der erste Abschluss einer Grundlagenforschung legt deine Werkstattprofession dauerhaft fest. Erst danach erscheinen Fachaufträge." if language == "de" else "The first completed foundation permanently establishes your workshop profession. Professional contracts appear afterwards.")
-	if not str(simulation.state.active_research).is_empty():
-		var actions := HBoxContainer.new()
-		actions.alignment = BoxContainer.ALIGNMENT_END
-		root.add_child(actions)
-		var pause_research_button := _button(actions, _t("pause"), func() -> void: _run(GameCommand.pause_research()))
-		pause_research_button.custom_minimum_size = Vector2(132, 36)
-	var visible_projects := simulation.visible_research()
+	_build_research_teams(root)
+	var navigation := HBoxContainer.new()
+	root.add_child(navigation)
+	var groups := OptionButton.new()
+	groups.custom_minimum_size = Vector2(230, 34)
 	for discipline: Dictionary in registry.all("disciplines"):
-		var discipline_projects: Array[Dictionary] = []
-		for project: Dictionary in visible_projects:
-			if str(project.get("discipline", "")) == str(discipline.id):
-				discipline_projects.append(project)
-		if discipline_projects.is_empty():
+		groups.add_item(_name(discipline))
+		groups.set_item_metadata(groups.item_count - 1, str(discipline.id))
+	for group: Array in [["general", "Allgemeine Forschung", "General Research"], ["hybrid", "Hybride & Konvergenzen", "Hybrids & Convergences"]]:
+		groups.add_item(str(group[1] if language == "de" else group[2]))
+		groups.set_item_metadata(groups.item_count - 1, str(group[0]))
+	for index: int in groups.item_count:
+		if str(groups.get_item_metadata(index)) == research_group:
+			groups.select(index)
+	groups.item_selected.connect(func(index: int) -> void:
+		research_group = str(groups.get_item_metadata(index))
+		_refresh_tab(1)
+	)
+	navigation.add_child(groups)
+	var filters := OptionButton.new()
+	for filter: Array in [["all", "Alle", "All"], ["available", "Verfügbar", "Available"], ["active", "Laufend", "Active"], ["prototype", "Prototypen fehlen", "Awaiting prototypes"], ["completed", "Abgeschlossen", "Completed"]]:
+		filters.add_item(str(filter[1] if language == "de" else filter[2]))
+		filters.set_item_metadata(filters.item_count - 1, str(filter[0]))
+		if str(filter[0]) == research_filter:
+			filters.select(filters.item_count - 1)
+	filters.item_selected.connect(func(index: int) -> void:
+		research_filter = str(filters.get_item_metadata(index))
+		_refresh_tab(1)
+	)
+	navigation.add_child(filters)
+	var columns := HBoxContainer.new()
+	root.add_child(columns)
+	var projects := ItemList.new()
+	projects.custom_minimum_size = Vector2(400, 310)
+	projects.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	projects.auto_translate_mode = Node.AUTO_TRANSLATE_MODE_DISABLED
+	columns.add_child(projects)
+	var detail := VBoxContainer.new()
+	detail.custom_minimum_size.x = 470
+	detail.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	columns.add_child(detail)
+	var definitions := simulation.visible_research()
+	definitions.sort_custom(func(a: Dictionary, b: Dictionary) -> bool: return int(a.tier) < int(b.tier) if int(a.tier) != int(b.tier) else str(a.id) < str(b.id))
+	var selected := -1
+	for project: Dictionary in definitions:
+		var group := "general" if bool(project.get("general", false)) else "hybrid" if bool(project.get("hybrid", false)) else str(project.discipline)
+		var status := simulation.research_status(str(project.id))
+		if group != research_group or (research_filter != "all" and research_filter != status):
 			continue
-		_section(root, _name(discipline))
-		for project: Dictionary in discipline_projects:
-			var row := _list_row(root)
-			var completed := bool((simulation.state.unlocked as Dictionary).get(str(project.id), false))
-			var progress := float((simulation.state.research_progress as Dictionary).get(str(project.id), 0.0))
-			var prefix := "◆ " if bool(project.get("hybrid", false)) else ""
-			var project_title := "%s%s · T%d" % [prefix, _name(project), int(project.get("tier", 1))]
-			if str(simulation.state.get("player_profession", "")).is_empty() and int(project.get("tier", 0)) == 1 and (project.get("requires", []) as Array).is_empty():
-				project_title += " · " + ("legt Profession fest" if language == "de" else "establishes profession")
-			_list_label(row, project_title, 260, true)
-			var bar := ProgressBar.new()
-			bar.min_value = 0
-			bar.max_value = float(project.get("cost_hours", 1))
-			bar.value = bar.max_value if completed else progress
-			bar.custom_minimum_size = Vector2(260, 28)
-			bar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-			bar.show_percentage = true
-			bar.tooltip_text = "%.0f / %.0f h" % [bar.value, bar.max_value]
-			row.add_child(bar)
-			live_research_bars[str(project.id)] = bar
-			if completed:
-				_list_status(row, "✓  " + _t("completed"), Color("73d69c"))
-			elif str(simulation.state.active_research) == str(project.id):
-				var detail := _list_status(row, "", Color("f0c875"))
-				live_research_details[str(project.id)] = detail
-			else:
-				var project_id := str(project.id)
-				var start_button := _button(row, _t("start"), func() -> void: _run(GameCommand.start_research(project_id)))
-				start_button.custom_minimum_size = Vector2(132, 36)
+		projects.add_item("%s T%d · %s" % ["✓" if status == "completed" else "◆" if status == "prototype" else "▶" if status == "active" else "○" if status == "available" else "·", int(project.tier), _name(project)])
+		projects.set_item_metadata(projects.item_count - 1, str(project.id))
+		projects.set_item_tooltip(projects.item_count - 1, _name(project) + " · " + _research_status_text(status))
+		if str(project.id) == selected_research:
+			selected = projects.item_count - 1
+	if projects.item_count > 0:
+		if selected < 0:
+			selected = 0
+		projects.select(selected)
+		selected_research = str(projects.get_item_metadata(selected))
+		_build_research_detail(detail, selected_research)
+	else:
+		_info(detail, "Keine passenden Projekte." if language == "de" else "No matching projects.")
+	projects.item_selected.connect(func(index: int) -> void:
+		selected_research = str(projects.get_item_metadata(index))
+		_clear(detail)
+		_build_research_detail(detail, selected_research)
+	)
 	_refresh_live_values()
 
 func _build_blueprints(root: VBoxContainer) -> void:
@@ -535,14 +562,13 @@ func _build_blueprints(root: VBoxContainer) -> void:
 	var modifier_defs := simulation.unlocked_content("modifiers")
 	var modifier_one := _definition_option(form, "Modifikator 1" if language == "de" else "Modifier 1", modifier_defs, true)
 	var modifier_two := _definition_option(form, "Modifikator 2" if language == "de" else "Modifier 2", modifier_defs, true)
-	var material_option := _definition_option(form, "Material", registry.all("materials"))
-	var secondary_material_option := _definition_option(form, "Zusatzmaterial" if language == "de" else "Additional Material", registry.all("materials"), true)
+	_form_label(form, "Basismaterial" if language == "de" else "Base material")
+	var material_label := _info(form, "")
+	material_label.name = "BaseMaterial"
 	var complex_unlocked := simulation.complex_blueprints_unlocked()
 	secondary_effect_option.disabled = not complex_unlocked
-	secondary_material_option.disabled = not complex_unlocked
 	if not complex_unlocked:
 		secondary_effect_option.tooltip_text = "Erfordert die Forschung Komplexe Baupläne." if language == "de" else "Requires Complex Blueprints research."
-		secondary_material_option.tooltip_text = secondary_effect_option.tooltip_text
 	var preview_label := Label.new()
 	preview_label.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	preview_label.add_theme_color_override("font_color", Color("b9c8d6"))
@@ -555,9 +581,11 @@ func _build_blueprints(root: VBoxContainer) -> void:
 			var value := _option_id(option)
 			if not value.is_empty():
 				modifiers.append(value)
-		return {"name":name_edit.text, "body_id":_option_id(body_option), "effect_id":_option_id(effect_option), "secondary_effect_id":_option_id(secondary_effect_option) if complex_unlocked else "", "modifier_ids":modifiers, "material_id":_option_id(material_option), "secondary_material_id":_option_id(secondary_material_option) if complex_unlocked else ""}
+		return {"name":name_edit.text, "body_id":_option_id(body_option), "effect_id":_option_id(effect_option), "secondary_effect_id":_option_id(secondary_effect_option) if complex_unlocked else "", "modifier_ids":modifiers}
 	var update_preview := func() -> void:
 		_clear(breakdown_box)
+		var body := registry.get_def("bodies", _option_id(body_option))
+		material_label.text = ("%s · 2 Einheiten pro Artefakt" if language == "de" else "%s · 2 units per artifact") % _name(registry.get_def("materials", str(body.base_material_id)))
 		var preview: Dictionary = simulation.preview_blueprint(collect.call() as Dictionary)
 		if not bool(preview.get("valid", false)):
 			preview_label.text = str(preview.get("message", ""))
@@ -565,7 +593,7 @@ func _build_blueprints(root: VBoxContainer) -> void:
 		var stats: Dictionary = preview.stats
 		preview_label.text = (("Leistung %.0f · Stabilität %.0f · Sicherheit %.0f · Prestige %.0f · Kosten %s · Basisaufwand %.1f h · Qualität ~%.0f" if language == "de" else "Power %.0f · Stability %.0f · Safety %.0f · Prestige %.0f · Cost %s · Base effort %.1f h · Quality ~%.0f") % [stats.power, stats.stability, stats.safety, stats.prestige, _money(preview.unit_cost), preview.hours, preview.quality_estimate]) + "\n" + (("Warenklassen: " if language == "de" else "Goods classes: ") + _goods_class_names(preview.get("goods_classes", [])) + " · " + ("Abdeckung: " if language == "de" else "Coverage: ") + _profession_names(preview.get("profession_coverage", [])))
 		_info(breakdown_box, _blueprint_cost_text(preview))
-		_info(breakdown_box, ("Materialmix: " if language == "de" else "Material mix: ") + _material_requirements_text(preview.get("material_requirements", [])) + (" · gewichtete Qualität %.0f%%" if language == "de" else " · weighted quality %.0f%%") % (float(preview.get("material_quality_estimate", 0.0)) * 100.0))
+		_info(breakdown_box, ("Basismaterial: " if language == "de" else "Base material: ") + _material_requirements_text(preview.get("material_requirements", [])) + (" · Materialqualität %.0f%%" if language == "de" else " · Material quality %.0f%%") % (float(preview.get("material_quality_estimate", 0.0)) * 100.0))
 		for modifier_value: Variant in ((preview.get("component_breakdown", {}) as Dictionary).get("modifiers", []) as Array):
 			var modifier_data: Dictionary = modifier_value
 			var modifier_def := registry.get_def("modifiers", str(modifier_data.get("id", "")))
@@ -582,7 +610,7 @@ func _build_blueprints(root: VBoxContainer) -> void:
 	var set_auto_name := func() -> void:
 		name_mode.automatic = true
 		name_mode.updating = true
-		name_edit.text = _auto_blueprint_name(body_option, effect_option, secondary_effect_option, [modifier_one, modifier_two], material_option, secondary_material_option)
+		name_edit.text = _auto_blueprint_name(body_option, effect_option, secondary_effect_option, [modifier_one, modifier_two])
 		name_edit.caret_column = name_edit.text.length()
 		name_mode.updating = false
 	name_edit.text_changed.connect(func(_text: String) -> void:
@@ -594,7 +622,7 @@ func _build_blueprints(root: VBoxContainer) -> void:
 		set_auto_name.call()
 		update_preview.call()
 	)
-	for option: OptionButton in [body_option, effect_option, secondary_effect_option, modifier_one, modifier_two, material_option, secondary_material_option]:
+	for option: OptionButton in [body_option, effect_option, secondary_effect_option, modifier_one, modifier_two]:
 		option.item_selected.connect(func(_index: int) -> void:
 			if bool(name_mode.automatic):
 				set_auto_name.call()
@@ -626,13 +654,11 @@ func _build_blueprints(root: VBoxContainer) -> void:
 		var body := registry.get_def("bodies", str(blueprint.get("body_id", "")))
 		var effect := registry.get_def("effects", str(blueprint.get("effect_id", "")))
 		var secondary_effect := registry.get_def("effects", str(blueprint.get("secondary_effect_id", "")))
-		var material := registry.get_def("materials", str(blueprint.get("material_id", "")))
-		var secondary_material := registry.get_def("materials", str(blueprint.get("secondary_material_id", "")))
 		var modifier_names: PackedStringArray = []
 		for modifier_id: Variant in blueprint.get("modifier_ids", []):
 			modifier_names.append(_name(registry.get_def("modifiers", str(modifier_id))))
 		_info(details, ("Grundkörper: %s · Primäreffekt: %s · Sekundäreffekt: %s · Modifikatoren: %s" if language == "de" else "Body: %s · Primary effect: %s · Secondary effect: %s · Modifiers: %s") % [_name(body), _name(effect), _name(secondary_effect) if not secondary_effect.is_empty() else "—", ", ".join(modifier_names) if not modifier_names.is_empty() else "—"])
-		_info(details, ("Materialmix: " if language == "de" else "Material mix: ") + _material_requirements_text(computed.get("material_requirements", [])) + ((" · Hauptmaterial %s · Zusatzmaterial %s" if language == "de" else " · Primary %s · additional %s") % [_name(material), _name(secondary_material) if not secondary_material.is_empty() else "—"]))
+		_info(details, ("Basismaterial: " if language == "de" else "Base material: ") + _material_requirements_text(computed.get("material_requirements", [])))
 		var stats: Dictionary = computed.get("stats", {})
 		_info(details, ("Leistung %.0f · Stabilität %.0f · Sicherheit %.0f · Prestige %.0f · Aufwand %.1f h · Qualitätsprognose ~%.0f (Modifikatoren %+.0f)" if language == "de" else "Power %.0f · Stability %.0f · Safety %.0f · Prestige %.0f · Effort %.1f h · Expected quality ~%.0f (modifiers %+.0f)") % [float(stats.get("power", 0)), float(stats.get("stability", 0)), float(stats.get("safety", 0)), float(stats.get("prestige", 0)), float(computed.get("hours", 0)), float(computed.get("quality_estimate", 0)), float(computed.get("quality_delta", 0))])
 		_info(details, ("Warenklassen: " if language == "de" else "Goods classes: ") + _goods_class_names(computed.get("goods_classes", [])))
@@ -722,34 +748,47 @@ func _build_warehouse(root: VBoxContainer) -> void:
 		if str(registry.get_def("stations", str(station.get("type", ""))).get("kind", "")) == "storage":
 			shelf_count += 1
 	_info(root, ("%d Materialregal(e) · %d Plätze je Rohstoff" if language == "de" else "%d material shelf/shelves · %d spaces per raw material") % [shelf_count, simulation.material_capacity()])
+	var storage_status := _info(_card(root), ("Lagerist zugeordnet: Fehlendes Produktionsmaterial wird automatisch beschafft. Neue Ernteüberschüsse werden bei vollem Lager verkauft." if language == "de" else "Storage staff assigned: Missing production materials are purchased automatically. New harvest surplus is sold when storage is full.") if simulation.has_storage_worker() else ("Kein Lagerist zugeordnet: Beschaffung, Sammlung und Überschussverkauf sind inaktiv. Weise unter Personal jemanden einem Materialregal zu." if language == "de" else "No storage staff assigned: Purchasing, harvesting and surplus sales are inactive. Assign someone to material shelves under Personnel."))
+	storage_status.name = "StorageStatus"
+	if not simulation.has_storage_worker():
+		storage_status.add_theme_color_override("font_color", Color("e2a36f"))
+	_info(root, "Preise je Einheit · Verkaufspreis für die Qualität im Lager" if language == "de" else "Prices per unit · Sale price reflects the quality in storage")
 	for material: Dictionary in registry.all("materials"):
 		var material_id := str(material.id)
 		var stock: Dictionary = (simulation.state.inventory as Dictionary).get(material_id, {"quantity":0, "quality":float(material.get("quality", 0.0))})
 		var capacity := simulation.material_capacity()
 		var free_capacity := simulation.material_free_capacity(material_id)
-		var row := _list_row(root)
-		_list_label(row, _name(material), 180, true)
-		_list_status(row, ("%d/%d · %d frei" if language == "de" else "%d/%d · %d free") % [int(stock.quantity), capacity, free_capacity], Color("e2a36f") if free_capacity == 0 else Color("b9c8d6"))
-		_list_status(row, "Q %.0f" % (float(stock.quality) * 100.0))
-		_list_status(row, ("Kauf %s · Verkauf %s" if language == "de" else "Buy %s · Sell %s") % [_money(simulation.material_buy_price(material_id)), _money(simulation.material_sell_price(material_id, float(stock.quality)))])
+		var card := VBoxContainer.new()
+		card.add_theme_constant_override("separation", 8)
+		_card(root).add_child(card)
+		var row := HBoxContainer.new()
+		row.name = "MaterialRow"
+		row.add_theme_constant_override("separation", 16)
+		card.add_child(row)
+		var description := VBoxContainer.new()
+		description.custom_minimum_size.x = 200
+		description.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		description.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(description)
+		var title := _info(description, _name(material))
+		title.add_theme_font_size_override("font_size", 19)
+		var stock_label := _info(description, ("Bestand %d/%d · %d frei · Qualität %.0f" if language == "de" else "Stock %d/%d · %d free · Quality %.0f") % [int(stock.quantity), capacity, free_capacity, float(stock.quality) * 100.0])
+		stock_label.add_theme_color_override("font_color", Color("e2a36f") if free_capacity == 0 else Color("b9c8d6"))
+		var prices := VBoxContainer.new()
+		prices.name = "MaterialPrices"
+		prices.custom_minimum_size.x = 180
+		prices.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+		row.add_child(prices)
+		_info(prices, ("Kauf: %s" if language == "de" else "Buy: %s") % _money(simulation.material_buy_price(material_id)))
+		_info(prices, ("Verkauf: %s" if language == "de" else "Sell: %s") % _money(simulation.material_sell_price(material_id, float(stock.quality))))
 		var price_events := simulation.active_material_price_events(material_id)
 		if not price_events.is_empty():
 			var event_parts: PackedStringArray = []
 			for event: Dictionary in price_events:
 				event_parts.append("%s ×%.2f · %s" % [_name(event), float(event.price_multiplier), ("noch %d Tage" if language == "de" else "%d days left") % int(event.remaining_days)])
-			_list_status(row, ", ".join(event_parts), Color("f0c875"))
-		var quantity := SpinBox.new()
-		quantity.min_value = 1
-		quantity.max_value = maxi(1, maxi(capacity, int(stock.quantity)))
-		quantity.value = mini(10, maxi(1, int(quantity.max_value)))
-		quantity.custom_minimum_size = Vector2(92, 36)
-		row.add_child(quantity)
-		var buy := _button(row, "Kaufen" if language == "de" else "Buy", func() -> void: _run(GameCommand.purchase_material(material_id, int(quantity.value))))
-		buy.tooltip_text = ("Material manuell beschaffen" if language == "de" else "Purchase material manually")
-		buy.disabled = free_capacity <= 0 or float(simulation.state.cash) < simulation.material_buy_price(material_id)
-		var sell := _button(row, "Verkaufen" if language == "de" else "Sell", func() -> void: _run(GameCommand.sell_material(material_id, int(quantity.value))))
-		sell.tooltip_text = ("Rohstoff manuell verkaufen" if language == "de" else "Sell raw material manually")
-		sell.disabled = int(stock.quantity) <= 0
+			var event_label := _info(card, "\n".join(event_parts))
+			event_label.name = "MaterialEvent"
+			event_label.add_theme_color_override("font_color", Color("f0c875"))
 
 func _build_market(root: VBoxContainer) -> void:
 	_heading(root, _t("market"))
@@ -829,7 +868,7 @@ func _build_workshop_legacy(root: VBoxContainer) -> void:
 	var toolbar := HFlowContainer.new()
 	toolbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	toolbar_margin.add_child(toolbar)
-	_list_label(toolbar, "Raumtyp" if language == "de" else "Room type", 78)
+	_list_label(toolbar, "Raumtyp" if language == "de" else "Room type", 90)
 	var room_option := OptionButton.new()
 	room_option.custom_minimum_size = Vector2(175, 36)
 	for room_def: Dictionary in registry.all("rooms"):
@@ -900,11 +939,13 @@ func _build_workshop(root: VBoxContainer) -> void:
 	var property_size := simulation.grid_size()
 	_info(root, "%s · %d×%d · %s" % [_name(property_def), property_size.x, property_size.y, _property_modifier_text(property_def)])
 	var grid := WorkshopGrid.new()
+	grid.name = "WorkshopMap"
+	grid.show_grid = workshop_show_grid
 	var toolbar_margin := _card(root)
 	var toolbar := HFlowContainer.new()
 	toolbar.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	toolbar_margin.add_child(toolbar)
-	_list_label(toolbar, "Raumtyp" if language == "de" else "Room type", 78)
+	_list_label(toolbar, "Raumtyp" if language == "de" else "Room type", 90)
 	var room_option := OptionButton.new()
 	room_option.custom_minimum_size = Vector2(175, 36)
 	for room_def: Dictionary in registry.all("rooms"):
@@ -939,6 +980,12 @@ func _build_workshop(root: VBoxContainer) -> void:
 	station_button.disabled = available_stations.is_empty()
 	var resize_button := _button(toolbar, "Räume ändern" if language == "de" else "Resize Rooms", func() -> void: placement_mode = "resize"; grid.set_mode("resize"))
 	resize_button.custom_minimum_size.x = 135
+	var grid_toggle := CheckButton.new()
+	grid_toggle.name = "WorkshopGridToggle"
+	grid_toggle.text = "Bauraster" if language == "de" else "Build grid"
+	grid_toggle.button_pressed = workshop_show_grid
+	grid_toggle.toggled.connect(func(enabled: bool) -> void: workshop_show_grid = enabled; grid.show_grid = enabled; grid.queue_redraw())
+	toolbar.add_child(grid_toggle)
 	var instruction := _info(root, _workshop_mode_text())
 	instruction.add_theme_color_override("font_color", Color("a9c6dd"))
 	var preview_label := _info(root, "")
@@ -949,6 +996,7 @@ func _build_workshop(root: VBoxContainer) -> void:
 	grid.room_resize_requested.connect(_on_room_resize_requested)
 	grid.preview_changed.connect(func(rect: Rect2i, room_id: String) -> void: preview_label.text = _room_preview_text(rect, room_id))
 	root.add_child(grid)
+	_info(root, "Figur am Arbeitsplatz = Personal zugewiesen · Mauszeiger über Raum, Station oder Quelle für Details" if language == "de" else "Worker beside a station = staff assigned · Hover over rooms, stations or sources for details")
 	_section(root, "Rohstoffquellen" if language == "de" else "Resource Sources")
 	for source_value: Variant in simulation.state.sources:
 		var source: Dictionary = source_value
@@ -1093,7 +1141,7 @@ func _build_rivals(root: VBoxContainer) -> void:
 		_info(root, "Keine." if language == "de" else "None.")
 	for race_value: Variant in (simulation.state.active_races as Dictionary).values():
 		var race: Dictionary = race_value
-		_info(root, "%s ↔ %s" % [_name(registry.get_def("research", str(race.project_id))), _name(registry.get_def("rivals", str(race.rival_id)))])
+		_info(root, "%s ↔ %s · %s" % [_name(registry.get_def("research", str(race.project_id))), _name(registry.get_def("rivals", str(race.rival_id))), str(race.get("winner", "")) if not str(race.get("winner", "")).is_empty() else _t("active")])
 
 func _build_finance(root: VBoxContainer) -> void:
 	_heading(root, _t("finance"))
@@ -1154,6 +1202,8 @@ func _on_room_resize_requested(room_id: String, rect: Rect2i) -> void:
 		_run(GameCommand.resize_room(room_id, rect))
 
 func _on_game_event(event: Dictionary) -> void:
+	if str(event.type) == "Victory":
+		call_deferred("_show_victory_dialog")
 	var event_name := str(event.type)
 	status_label.text = _event_text(event_name, event.payload)
 	status_label.add_theme_color_override("font_color", Color("a9c6dd"))
@@ -1167,6 +1217,12 @@ func _event_text(kind: String, payload: Dictionary) -> String:
 		"GameStarted": return "Unternehmen gegründet." if language == "de" else "Company founded."
 		"ResearchStarted": return ("Forschung begonnen: " if language == "de" else "Research started: ") + _name(registry.get_def("research", str(payload.get("project_id", ""))))
 		"ResearchCompleted": return ("Forschung abgeschlossen: " if language == "de" else "Research completed: ") + _name(registry.get_def("research", str(payload.get("project_id", ""))))
+		"PrototypeRequired": return ("Theorie abgeschlossen: Prototypen für " if language == "de" else "Theory complete: prototypes required for ") + _name(registry.get_def("research", str(payload.get("project_id", ""))))
+		"CompanyAdvanced": return ("Unternehmensaufstieg: " if language == "de" else "Company advanced: ") + str(payload.get("name_" + language, ""))
+		"FocusChanged": return "Forschungsschwerpunkt aktiviert." if language == "de" else "Research focus activated."
+		"MasterpieceSubmitted": return "Meisterwerk abgegeben. Jetzt die Produktfamilie am Markt bewähren." if language == "de" else "Masterwork submitted. Prove the product family on the market."
+		"DemonstrationCompleted": return "Demonstration gelungen. Der Folgeauftrag ist verfügbar." if language == "de" else "Demonstration succeeded. Follow-up commission available."
+		"RaceCompleted": return "Technologierennen abgeschlossen." if language == "de" else "Technology race completed."
 		"ProfessionChosen": return ("Werkstattprofession festgelegt: " if language == "de" else "Workshop profession established: ") + _name(registry.get_def("disciplines", str(payload.get("profession_id", ""))))
 		"WageLevelChanged": return (("Lohnniveau aktiviert: %d %%" if language == "de" else "Wage level activated: %d%%") % roundi(float(payload.get("new_level", 1.0)) * 100.0))
 		"BlueprintCreated":
@@ -1220,7 +1276,10 @@ func _load_slot(slot: String) -> void:
 		_show_legacy_profession_choice()
 
 func _toggle_pause() -> void:
-	simulation.set_paused(not bool(simulation.state.paused))
+	if not str(simulation.state.victory).is_empty():
+		_run(GameCommand.continue_game())
+	else:
+		simulation.set_paused(not bool(simulation.state.paused))
 
 func _toggle_language() -> void:
 	language = "en" if language == "de" else "de"
@@ -1263,16 +1322,13 @@ func _definition_option(parent: GridContainer, label_text: String, definitions: 
 	parent.add_child(option)
 	return option
 
-func _auto_blueprint_name(body_option: OptionButton, effect_option: OptionButton, secondary_effect_option: OptionButton, modifier_options: Array, material_option: OptionButton, secondary_material_option: OptionButton) -> String:
+func _auto_blueprint_name(body_option: OptionButton, effect_option: OptionButton, secondary_effect_option: OptionButton, modifier_options: Array) -> String:
 	var body_name := _name(registry.get_def("bodies", _option_id(body_option)))
 	var effect_name := _name(registry.get_def("effects", _option_id(effect_option)))
-	var material_name := _name(registry.get_def("materials", _option_id(material_option)))
+	var material_name := _name(registry.get_def("materials", str(registry.get_def("bodies", _option_id(body_option)).base_material_id)))
 	var secondary_effect_id := _option_id(secondary_effect_option)
-	var secondary_material_id := _option_id(secondary_material_option)
 	if not secondary_effect_id.is_empty():
 		effect_name += " + " + _name(registry.get_def("effects", secondary_effect_id))
-	if not secondary_material_id.is_empty():
-		material_name += " + " + _name(registry.get_def("materials", secondary_material_id))
 	var result := "%s – %s (%s)" % [body_name, effect_name, material_name]
 	var modifier_names: PackedStringArray = []
 	for option_value: Variant in modifier_options:
@@ -1495,3 +1551,281 @@ func _money(value: float) -> String:
 
 func _signed_money(value: float) -> String:
 	return ("+" if value >= 0.0 else "−") + _money(absf(value))
+
+func _research_status_text(status: String) -> String:
+	var labels := {"available":["Verfügbar", "Available"], "locked":["Voraussetzungen fehlen", "Prerequisites missing"], "active":["In Arbeit", "In progress"], "prototype":["Theorie fertig · Prototypen fehlen", "Theory complete · prototypes required"], "completed":["Abgeschlossen", "Completed"]}
+	return str(labels.get(status, [status, status])[0 if language == "de" else 1])
+
+func _build_research_teams(root: VBoxContainer) -> void:
+	var rows := HBoxContainer.new()
+	root.add_child(rows)
+	for team_id: int in (simulation.state.research_teams as Array).size():
+		var team: Dictionary = simulation.state.research_teams[team_id]
+		var panel := VBoxContainer.new()
+		panel.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		rows.add_child(panel)
+		var project := registry.get_def("research", str(team.project_id))
+		_info(panel, "Team %d · %s" % [team_id + 1, _name(project) if not project.is_empty() else ("Frei" if language == "de" else "Idle")])
+		if not str(team.project_id).is_empty():
+			var captured := team_id
+			_button(panel, _t("pause"), func() -> void: _run(GameCommand.pause_research(captured)))
+	var team_assignment := HFlowContainer.new()
+	root.add_child(team_assignment)
+	for station: Dictionary in simulation.state.stations:
+		if str(registry.get_def("stations", str(station.type)).get("kind", "")) != "research":
+			continue
+		var selector := OptionButton.new()
+		selector.tooltip_text = "Forschertisch einem Team zuweisen" if language == "de" else "Assign research desk to a team"
+		for team_id: int in (simulation.state.research_teams as Array).size():
+			selector.add_item("%s → Team %d" % [str(station.id), team_id + 1])
+		selector.select(int(simulation.state.station_teams.get(str(station.id), 0)))
+		var station_id := str(station.id)
+		selector.item_selected.connect(func(index: int) -> void: _run(GameCommand.assign_research_team(station_id, index)))
+		team_assignment.add_child(selector)
+	var focus_row := HBoxContainer.new()
+	root.add_child(focus_row)
+	var focus_names := {}
+	for project: Dictionary in registry.all("research"):
+		if project.has("branch"):
+			focus_names[str(project.branch)] = str(project.get("branch_name_" + language, project.branch))
+	var focus_label := _info(focus_row, ("Schwerpunkt: " if language == "de" else "Focus: ") + str(focus_names.get(str(simulation.state.focus_branch), "—")))
+	focus_label.name = "FocusLabel"
+	focus_label.custom_minimum_size.x = 200
+	focus_label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	if not simulation.state.focus_change.is_empty():
+		var change: Dictionary = simulation.state.focus_change
+		_info(root, ("Umstellung auf %s · Team %d · %.0f / %.0f Arbeit" if language == "de" else "Changing to %s · Team %d · %.0f / %.0f work") % [str(focus_names.get(str(change.branch_id), change.branch_id)), int(change.team_id) + 1, float(change.progress), float(simulation.scenario.focus.work)])
+	else:
+		var choices := simulation.available_focuses()
+		if not choices.is_empty() and int(simulation.state.company_level) >= 2:
+			var branches := OptionButton.new()
+			branches.custom_minimum_size.x = 240
+			for branch: Dictionary in choices:
+				branches.add_item(_name(branch))
+				branches.set_item_metadata(branches.item_count - 1, str(branch.id))
+			focus_row.add_child(branches)
+			var teams := OptionButton.new()
+			for id: int in (simulation.state.research_teams as Array).size():
+				teams.add_item("Team %d" % [id + 1])
+			focus_row.add_child(teams)
+			_button(focus_row, ("Wählen" if language == "de" else "Choose") if not bool(simulation.state.focus_chosen) else ("Wechseln: 2.000 G / 288 Arbeit" if language == "de" else "Change: 2,000 G / 288 work"), func() -> void: _run(GameCommand.change_focus(_option_id(branches), teams.selected)))
+
+func _build_research_detail(root: VBoxContainer, project_id: String) -> void:
+	var project := registry.get_def("research", project_id)
+	if project.is_empty():
+		return
+	_info(root, _name(project)).add_theme_font_size_override("font_size", 19)
+	_info(root, str(project.get("description_" + language, "")))
+	_info(root, _research_status_text(simulation.research_status(project_id)))
+	_info(root, ("Unternehmensstufe %d · %.0f Arbeit · %.0f Gold/Spielstunde" if language == "de" else "Company level %d · %.0f work · %.0f gold/game hour") % [int(project.get("min_company_level", 1)), float(project.cost_hours), float(project.hourly_cost)])
+	var bar := ProgressBar.new()
+	bar.max_value = float(project.cost_hours)
+	bar.custom_minimum_size.y = 24
+	root.add_child(bar)
+	live_research_bars[project_id] = bar
+	if simulation.research_status(project_id) == "active":
+		live_research_details[project_id] = _info(root, "")
+	var requirements: PackedStringArray = []
+	for id: String in project.get("requires", []):
+		requirements.append(_name(registry.get_def("research", id)))
+	if not requirements.is_empty():
+		_info(root, ("Benötigt: " if language == "de" else "Requires: ") + ", ".join(requirements))
+	var alternatives: PackedStringArray = []
+	for id: String in project.get("requires_any", []):
+		alternatives.append(_name(registry.get_def("research", id)))
+	if not alternatives.is_empty():
+		_info(root, ("Eine dieser Forschungen: " if language == "de" else "Any one of: ") + ", ".join(alternatives))
+	var unlocks: PackedStringArray = []
+	for id: String in project.unlocks:
+		for category: String in ["bodies", "effects", "modifiers", "stations"]:
+			if registry.has_def(category, id):
+				unlocks.append(_name(registry.get_def(category, id)))
+	for key: String in project.get("benefits", {}):
+		var names := {"research_rate":["Forschungstempo", "Research speed"], "ramp_reduction":["Weniger Anlaufstunden", "Fewer ramp hours"], "second_team":["Zweites Team", "Second team"], "quality_bonus":["Qualitätspunkte", "Quality points"], "production_rate":["Produktionstempo", "Production speed"], "construction_discount":["Baukostenrabatt", "Construction discount"], "market_score":["Marktwirkung", "Market appeal"], "merchant_path":["Kaufmann-Abschluss", "Merchant finale"]}
+		var value := float(project.benefits[key])
+		unlocks.append(str(names.get(key, [key, key])[0 if language == "de" else 1]) + ": " + ("+%.0f%%" % (value * 100) if key in ["research_rate", "production_rate", "construction_discount", "market_score"] else str(value)))
+	_info(root, ("Schaltet frei: " if language == "de" else "Unlocks: ") + ", ".join(unlocks))
+	for proof: Dictionary in project.get("proofs", []):
+		_info(root, _proof_text(proof))
+	var status := simulation.research_status(project_id)
+	if status == "available":
+		var actions := HBoxContainer.new()
+		root.add_child(actions)
+		for id: int in (simulation.state.research_teams as Array).size():
+			var captured := id
+			var button := _button(actions, ("Starten: Team %d" if language == "de" else "Start: Team %d") % [id + 1], func() -> void: _run(GameCommand.start_research(project_id, captured)))
+			button.disabled = not simulation.state.focus_change.is_empty() and int(simulation.state.focus_change.team_id) == id
+	elif status == "prototype":
+		_button(root, "Prototypen auswählen" if language == "de" else "Select prototypes", func() -> void: _show_proof_dialog(project_id, false))
+	_refresh_live_values()
+
+func _proof_text(proof: Dictionary) -> String:
+	var labels: PackedStringArray = []
+	for id: String in proof.get("required_coverage", []):
+		labels.append(_name(registry.get_def("disciplines", id)))
+	for id: String in proof.get("accepted_classes", []):
+		labels.append(_name(registry.get_def("goods_classes", id)))
+	if proof.has("family_effect"):
+		labels.append(_name(registry.get_def("effects", str(proof.family_effect))))
+	for key: String in proof.get("min_stats", {}):
+		labels.append(key + " ≥ " + str(proof.min_stats[key]))
+	return ("Nachweis: %d Stück · Qualität ≥ %.0f · %s" if language == "de" else "Proof: %d units · quality ≥ %.0f · %s") % [int(proof.quantity), float(proof.min_quality), ", ".join(labels)]
+
+func _show_proof_dialog(project_id: String, final: bool) -> void:
+	var project := registry.get_def("research", project_id)
+	var requirements: Array = simulation.final_project_requirements(project_id) if final else project.get("proofs", [])
+	var window := Window.new()
+	window.title = "Ware auswählen" if language == "de" else "Select goods"
+	window.initial_position = Window.WINDOW_INITIAL_POSITION_CENTER_MAIN_WINDOW_SCREEN
+	window.size = Vector2i(900, 550)
+	window.transient = true
+	window.exclusive = true
+	add_child(window)
+	var margin := MarginContainer.new()
+	margin.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
+	for side: String in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 14)
+	window.add_child(margin)
+	var body := VBoxContainer.new()
+	margin.add_child(body)
+	_info(body, _name(project))
+	_info(body, "Die ausgewählte Ware wird bei erfolgreicher Abgabe verbraucht." if language == "de" else "Selected goods are consumed upon successful submission.")
+	var scroll := ScrollContainer.new()
+	scroll.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	body.add_child(scroll)
+	var stock := VBoxContainer.new()
+	stock.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	scroll.add_child(stock)
+	var controls: Array = []
+	for index: int in requirements.size():
+		var requirement: Dictionary = requirements[index]
+		_info(stock, _proof_text(requirement))
+		var found := false
+		for id: String in simulation.state.products:
+			if not simulation.proof_product_matches(id, requirement) or int(simulation.state.products[id].quantity) <= 0:
+				continue
+			found = true
+			var row := HBoxContainer.new()
+			stock.add_child(row)
+			var label := _info(row, "%s · %d · Q %.1f" % [str(simulation.state.blueprints[id].name), int(simulation.state.products[id].quantity), float(simulation.state.products[id].average_quality)])
+			label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+			var amount := SpinBox.new()
+			amount.min_value = 0
+			amount.max_value = mini(int(requirement.quantity), int(simulation.state.products[id].quantity))
+			amount.step = 1
+			amount.custom_minimum_size.x = 95
+			amount.set_meta("blueprint_id", id)
+			amount.set_meta("requirement", index)
+			row.add_child(amount)
+			controls.append(amount)
+		if not found:
+			_info(stock, "Noch keine passende Ware: zuerst herstellen oder Qualität verbessern." if language == "de" else "No suitable stock yet: produce goods or improve quality first.")
+	var status := _info(body, "")
+	var actions := HBoxContainer.new()
+	body.add_child(actions)
+	var submit := _button(actions, _t("submit"), func() -> void:
+		var selected := _proof_selection(controls)
+		var result := simulation.execute(GameCommand.submit_final_project(project_id, selected) if final else GameCommand.submit_prototypes(project_id, selected))
+		_show_result(result)
+		if bool(result.ok):
+			window.queue_free()
+			_refresh_all_tabs()
+		else:
+			status.text = _localized_result_message(str(result.message))
+	)
+	var refresh := func() -> void:
+		var result := simulation.proof_selection_status(requirements, _proof_selection(controls))
+		status.text = _localized_result_message(str(result.message))
+		submit.disabled = not bool(result.ok)
+	for amount: SpinBox in controls:
+		amount.value_changed.connect(func(_value: float) -> void: refresh.call())
+	refresh.call()
+	_button(actions, "Schließen" if language == "de" else "Close", func() -> void: window.queue_free())
+	window.close_requested.connect(func() -> void: window.queue_free())
+	window.show()
+
+func _proof_selection(controls: Array) -> Array:
+	var result: Array = []
+	for amount: SpinBox in controls:
+		if int(amount.value) > 0:
+			result.append({"requirement":int(amount.get_meta("requirement")), "blueprint_id":str(amount.get_meta("blueprint_id")), "quantity":int(amount.value)})
+	return result
+
+func _build_company_progress(root: VBoxContainer) -> void:
+	var level := int(simulation.state.company_level)
+	var levels: Array = simulation.scenario.company_levels
+	_section(root, _name(levels[level - 1]))
+	if level < levels.size():
+		var next: Dictionary = levels[level]
+		var progress := simulation.company_progress()
+		var labels := {"research":["Forschungen", "Research"], "sales":["Verkaufte Artefakte", "Artifact sales"], "contracts":["Aufträge", "Contracts"], "breakthroughs":["Durchbrüche", "Breakthroughs"], "foundations":["Grundlagen", "Foundations"]}
+		for key: String in labels:
+			if int(next.get(key, 0)) > 0:
+				_info(root, "%s: %d / %d" % [str(labels[key][0 if language == "de" else 1]), int(progress[key]), int(next[key])])
+		if bool(next.get("victory_required", false)):
+			_info(root, "Nächste Stufe: einen Siegpfad abschließen." if language == "de" else "Next level: complete one victory path.")
+
+func _build_final_projects(root: VBoxContainer) -> void:
+	_section(root, "Lebenswerke und Siegpfade" if language == "de" else "Life's Works and Victory Paths")
+	_info(root, "Meister: Meisterwerke und Marktbeweis · Kaufmann: 30 Tage nachhaltiger Handel · Forscher: Konvergenz und Folgeauftrag" if language == "de" else "Master: masterworks and market proof · Merchant: 30 days of sustainable trade · Researcher: convergence and commission")
+	if not simulation.state.victories.is_empty():
+		_info(root, ("Erreicht: " if language == "de" else "Achieved: ") + ", ".join(simulation.state.victories.keys()))
+	if not str(simulation.state.victory).is_empty():
+		_button(root, "Weiterspielen" if language == "de" else "Continue playing", func() -> void: _run(GameCommand.continue_game()))
+	if not simulation.state.master_project.is_empty():
+		var master: Dictionary = simulation.state.master_project
+		_info(root, ("Meister: %d / %d Verkäufe · Frist Tag %d" if language == "de" else "Master: %d / %d sales · deadline day %d") % [int(master.sales), int(simulation.scenario.victory.master_sales), int(master.deadline_day)])
+		if simulation.current_day() > int(master.deadline_day) and not simulation.state.victories.has("master"):
+			_button(root, "Verkaufsphase neu starten" if language == "de" else "Restart sales phase", func() -> void: _run(GameCommand.restart_master_sales()))
+	var config: Dictionary = simulation.scenario.victory
+	var revenue := 0.0
+	var net := 0.0
+	var customers := {}
+	for day: Dictionary in simulation.state.merchant_history:
+		revenue += float(day.revenue)
+		net += float(day.net)
+		for id: String in day.customers:
+			customers[id] = int(customers.get(id, 0)) + int(day.customers[id])
+	_info(root, ("Kaufmann: %d / %d Tage · Artefaktumsatz %.0f / %.0f · Ergebnis %.0f · Nettogold %.0f / %.0f" if language == "de" else "Merchant: %d / %d days · artifact revenue %.0f / %.0f · net result %.0f · net cash %.0f / %.0f") % [(simulation.state.merchant_history as Array).size(), int(config.merchant_days), revenue, float(config.merchant_revenue), net, float(simulation.state.cash) - float(simulation.state.loan_balance), float(config.merchant_net_cash)])
+	var served: PackedStringArray = []
+	for id: String in customers:
+		served.append("%s %d/%d" % [_name(registry.get_def("customers", id)), int(customers[id]), int(config.merchant_units)])
+	_info(root, ("Kundenversorgung (mindestens %d Gruppen): " if language == "de" else "Customer supply (at least %d groups): ") % int(config.merchant_customers) + ", ".join(served))
+	if not bool(simulation.state.unlocked.get("base:trade_mastery", false)):
+		_info(root, "Handelsmeisterschaft startet das Handelsfenster." if language == "de" else "Trade Mastery starts the trading window.")
+	var choices := OptionButton.new()
+	choices.custom_minimum_size.x = 400
+	for project: Dictionary in registry.all("research"):
+		if not simulation.final_project_requirements(str(project.id)).is_empty():
+			choices.add_item(_name(project))
+			choices.set_item_metadata(choices.item_count - 1, str(project.id))
+	if choices.item_count > 0:
+		var row := HBoxContainer.new()
+		root.add_child(row)
+		row.add_child(choices)
+		_button(row, "Abschlussware auswählen" if language == "de" else "Select final project goods", func() -> void: _show_proof_dialog(_option_id(choices), true))
+	else:
+		choices.free()
+		_info(root, "Meister- und Forschungsabschlüsse werden mit Stufe 4 und der jeweiligen Spitzenforschung verfügbar." if language == "de" else "Master and researcher finales become available at company level 4 after their capstone research.")
+	if not simulation.state.researcher_project.is_empty():
+		_info(root, "Demonstration abgeschlossen. Der feste Folgeauftrag wartet auf zehn weitere Artefakte." if language == "de" else "Demonstration complete. The guaranteed follow-up commission needs ten more artifacts.")
+
+func _show_victory_dialog() -> void:
+	if simulation == null or str(simulation.state.victory).is_empty() or has_node("VictoryDialog"):
+		return
+	var dialog := AcceptDialog.new()
+	dialog.name = "VictoryDialog"
+	dialog.title = "Legendäre Werkstatt" if language == "de" else "Legendary Workshop"
+	dialog.dialog_text = ("Siegpfad erreicht: %s. Weitere Lebenswerke bleiben erreichbar." if language == "de" else "Victory path achieved: %s. Other life's works remain available.") % str(simulation.state.victory)
+	dialog.ok_button_text = "Weiterspielen" if language == "de" else "Continue playing"
+	add_child(dialog)
+	dialog.confirmed.connect(func() -> void:
+		_run(GameCommand.continue_game())
+		dialog.queue_free()
+	)
+	dialog.canceled.connect(func() -> void: dialog.queue_free())
+	dialog.popup_centered(Vector2i(650, 180))
+
+func _localized_result_message(message: String) -> String:
+	var parts := message.split(" / ", false, 1)
+	return str(parts[1]) if language == "en" and parts.size() == 2 else str(parts[0]) if not parts.is_empty() else message

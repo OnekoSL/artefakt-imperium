@@ -4,7 +4,7 @@ extends RefCounted
 signal event_emitted(event: Dictionary)
 signal state_changed()
 
-const SAVE_VERSION := 9
+const SAVE_VERSION := 11
 const SaveValidation = preload("res://src/core/save_validation.gd")
 const Schema = preload("res://src/core/data_schema.gd")
 const HOURS_PER_DAY := 24
@@ -15,13 +15,13 @@ const MAX_WAGE_LEVEL := 1.20
 const WAGE_LEVEL_STEP := 0.05
 const COMPLEX_BLUEPRINT_RESEARCH := "base:complex_blueprints"
 const SECONDARY_EFFECT_FACTOR := 0.60
-const SECONDARY_MATERIAL_STAT_FACTOR := 0.50
 const CONTRACT_MARKET_MIN_SALES := 1
 const CONTRACT_MARKET_MIN_REPUTATION := 5.0
 const CONTRACT_OFFER_COOLDOWN_DAYS := 7
 const STAT_KEYS: PackedStringArray = ["power", "stability", "safety", "prestige"]
 
 var registry: ContentRegistry
+var research_projects: Array[Dictionary] = []
 var scenario: Dictionary
 var property: Dictionary
 var state: Dictionary = {}
@@ -34,6 +34,7 @@ var recent_events: Array[Dictionary] = []
 
 func _init(content_registry: ContentRegistry) -> void:
 	registry = content_registry
+	research_projects = registry.all("research")
 
 func new_game(scenario_id: String = "base:first_sparks", seed_override: int = 0, property_id: String = "base:outskirts") -> void:
 	scenario = registry.get_def("scenarios", scenario_id)
@@ -70,12 +71,27 @@ func new_game(scenario_id: String = "base:first_sparks", seed_override: int = 0,
 		"pending_wage_level": 1.0,
 		"research_cost_today": 0.0,
 		"production_cost_today": 0.0,
+		"last_wages_paid": 0.0,
+		"last_interest_paid": 0.0,
 		"journal": [],
 		"logbook": [],
 		"inventory": {},
 		"unlocked": {},
 		"research_progress": {},
 		"active_research": "",
+		"research_teams":[{"project_id":"", "ramp":0}],
+		"station_teams":{},
+		"pending_breakthroughs":{},
+		"focus_branch":"",
+		"focus_chosen":false,
+		"focus_change":{},
+		"company_level":1,
+		"regular_contracts_completed":0,
+		"breakthroughs_completed":0,
+		"victories":{},
+		"master_project":{},
+		"researcher_project":{},
+		"merchant_history":[],
 		"research_ramp": 0,
 		"blueprints": {},
 		"next_blueprint": 1,
@@ -104,6 +120,8 @@ func new_game(scenario_id: String = "base:first_sparks", seed_override: int = 0,
 		"market_report": {},
 		"active_races": {},
 	}
+	for customer: Dictionary in registry.all("customers"):
+		state.faction_reputation[str(customer.id)] = 0.0
 	_initialize_unlocks()
 	_initialize_inventory()
 	_initialize_workshop()
@@ -116,24 +134,25 @@ func new_game(scenario_id: String = "base:first_sparks", seed_override: int = 0,
 	state_changed.emit()
 
 func execute(command: GameCommand) -> Dictionary:
-	if bool(state.get("defeat", false)) or not str(state.get("victory", "")).is_empty():
+	if bool(state.get("defeat", false)) or (not str(state.get("victory", "")).is_empty() and command.kind != GameCommand.Kind.CONTINUE_GAME):
 		return _result(false, "Die Partie ist beendet.")
+	var payload_error := _research_command_error(command)
+	if not payload_error.is_empty():
+		return _result(false, payload_error)
 	var result: Dictionary
 	match command.kind:
 		GameCommand.Kind.START_RESEARCH:
-			result = _start_research(str(command.payload.get("project_id", "")))
+			result = _start_research(str(command.payload.get("project_id", "")), int(command.payload.get("team_id", 0)))
 		GameCommand.Kind.PAUSE_RESEARCH:
-			result = _pause_research()
+			result = _pause_research(int(command.payload.get("team_id", 0)))
 		GameCommand.Kind.CREATE_BLUEPRINT:
 			result = _create_blueprint(command.payload)
 		GameCommand.Kind.CONFIGURE_PRODUCTION:
 			result = _configure_production(str(command.payload.get("station_id", "")), str(command.payload.get("blueprint_id", "")))
 		GameCommand.Kind.SET_PRODUCTION_ENABLED:
 			result = _set_production_enabled(str(command.payload.get("station_id", "")), bool(command.payload.get("enabled", false)))
-		GameCommand.Kind.PURCHASE_MATERIAL:
-			result = _purchase_material(str(command.payload.get("material_id", "")), int(command.payload.get("quantity", 0)))
-		GameCommand.Kind.SELL_MATERIAL:
-			result = _sell_material(str(command.payload.get("material_id", "")), int(command.payload.get("quantity", 0)))
+		GameCommand.Kind.PURCHASE_MATERIAL, GameCommand.Kind.SELL_MATERIAL:
+			return _result(false, "Rohstoffhandel übernimmt der Lagerist automatisch. / Raw material trade is handled automatically by storage staff.", {"code":"unsupported_command"})
 		GameCommand.Kind.SET_PRICE:
 			result = _set_price(str(command.payload.get("blueprint_id", "")), float(command.payload.get("price", 0)))
 		GameCommand.Kind.STOP_SALE:
@@ -160,6 +179,20 @@ func execute(command: GameCommand) -> Dictionary:
 			result = _choose_profession(str(command.payload.get("profession_id", "")))
 		GameCommand.Kind.SET_WAGE_LEVEL:
 			result = _set_wage_level(float(command.payload.get("value", 1.0)))
+		GameCommand.Kind.ASSIGN_RESEARCH_TEAM:
+			result = _assign_research_team(str(command.payload.get("station_id", "")), int(command.payload.get("team_id", 0)))
+		GameCommand.Kind.CHANGE_FOCUS:
+			result = _change_focus(str(command.payload.get("branch_id", "")), int(command.payload.get("team_id", 0)))
+		GameCommand.Kind.SUBMIT_PROTOTYPES:
+			result = _submit_prototypes(str(command.payload.get("project_id", "")), command.payload.get("selection", []))
+		GameCommand.Kind.SUBMIT_FINAL_PROJECT:
+			result = _submit_final_project(str(command.payload.get("project_id", "")), command.payload.get("selection", []))
+		GameCommand.Kind.RESTART_MASTER_SALES:
+			result = _restart_master_sales()
+		GameCommand.Kind.CONTINUE_GAME:
+			state.victory = ""
+			state.paused = false
+			result = _result(true, "Die Werkstatt arbeitet weiter. / The workshop continues.")
 		_:
 			result = _result(false, "Unbekannter Befehl.")
 	if bool(result.ok):
@@ -179,6 +212,8 @@ func tick() -> void:
 	state_changed.emit()
 
 func set_paused(value: bool) -> void:
+	if not value and not str(state.get("victory", "")).is_empty():
+		return
 	state.paused = value
 	state_changed.emit()
 
@@ -204,10 +239,12 @@ func daily_wages(level: float = -1.0) -> float:
 	return snappedf(base_daily_wages() * applied_level, 0.01)
 
 func active_research_daily_cost() -> float:
-	var project_id := str(state.get("active_research", ""))
-	if project_id.is_empty() or research_rate(project_id, false) <= 0.0:
-		return 0.0
-	return float(registry.get_def("research", project_id).get("hourly_cost", 0.0)) * HOURS_PER_DAY
+	var cost := 0.0
+	for team_id: int in (state.research_teams as Array).size():
+		var project_id := str(state.research_teams[team_id].project_id)
+		if not project_id.is_empty() and research_rate(project_id, false, team_id) > 0.0:
+			cost += float(registry.get_def("research", project_id).get("hourly_cost", 0.0)) * HOURS_PER_DAY
+	return cost
 
 func expected_daily_operating_result() -> float:
 	var last_revenue := float((state.get("market_report", {}) as Dictionary).get("daily_revenue", 0.0))
@@ -265,50 +302,35 @@ func available_goods_classes(profession_id: String = "") -> Array[String]:
 
 func available_research() -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
-	for project: Dictionary in registry.all("research"):
-		if bool((state.unlocked as Dictionary).get(str(project.id), false)):
+	for project: Dictionary in research_projects:
+		if bool((state.unlocked as Dictionary).get(str(project.id), false)) or state.pending_breakthroughs.has(str(project.id)):
 			continue
 		if _research_prerequisites_met(project):
 			result.append(project)
 	return result
 
 func visible_research() -> Array[Dictionary]:
-	var result: Array[Dictionary] = []
-	for project: Dictionary in registry.all("research"):
-		if bool((state.unlocked as Dictionary).get(str(project.id), false)):
-			result.append(project)
-			continue
-		if _research_prerequisites_met(project):
-			result.append(project)
-	return result
+	return research_projects.duplicate()
 
 func complex_blueprints_unlocked() -> bool:
 	return bool((state.unlocked as Dictionary).get(COMPLEX_BLUEPRINT_RESEARCH, false))
 
 func effect_combination_status(primary_effect_id: String, secondary_effect_id: String) -> Dictionary:
 	var primary := registry.get_def("effects", primary_effect_id)
-	var coverage: Array[String] = _effect_profession_coverage(primary)
-	if secondary_effect_id.is_empty():
-		return {"ok":true, "message":"", "coverage":coverage, "required_research":""}
 	var secondary := registry.get_def("effects", secondary_effect_id)
-	if primary.is_empty() or secondary.is_empty():
-		return {"ok":false, "message":"Unbekannte Effektkombination.", "coverage":coverage, "required_research":""}
-	_add_string_values(coverage, _effect_profession_coverage(secondary))
+	var coverage := _effect_profession_coverage(primary)
+	if primary.is_empty() or (not secondary_effect_id.is_empty() and secondary.is_empty()):
+		return {"ok":false, "message":"Unbekannter Effekt / Unknown effect", "coverage":coverage, "required_research":""}
+	if not secondary.is_empty():
+		_add_string_values(coverage, _effect_profession_coverage(secondary))
 	if coverage.size() <= 1:
 		return {"ok":true, "message":"", "coverage":coverage, "required_research":""}
-	var required_research := ""
-	if coverage.size() >= 3:
-		required_research = "base:convergent_mastery"
-	elif coverage.has("base:arcane") and coverage.has("base:witchcraft"):
-		required_research = "base:crystal_hex"
-	elif coverage.has("base:arcane") and coverage.has("base:runes"):
-		required_research = "base:runic_manufactory"
-	elif coverage.has("base:witchcraft") and coverage.has("base:runes"):
-		required_research = "base:bound_covenant"
-	if required_research.is_empty() or not bool((state.unlocked as Dictionary).get(required_research, false)):
-		var research_name := str(registry.get_def("research", required_research).get("name_de", required_research))
-		return {"ok":false, "message":"Diese Effektmischung benötigt die Forschung %s." % research_name, "coverage":coverage, "required_research":required_research}
-	return {"ok":true, "message":"", "coverage":coverage, "required_research":required_research}
+	for project: Dictionary in research_projects:
+		var supported: Array = project.get("hybrid_coverage", [])
+		if supported.size() == coverage.size() and _contains_all(supported, coverage):
+			var unlocked := bool(state.unlocked.get(str(project.id), false))
+			return {"ok":unlocked, "message":"" if unlocked else "Benötigt / Requires: " + str(project.name_de), "coverage":coverage, "required_research":str(project.id)}
+	return {"ok":false, "message":"Diese Verbindung ist nicht erforschbar. / This combination cannot be researched.", "coverage":coverage, "required_research":""}
 
 func unlocked_content(category: String) -> Array[Dictionary]:
 	var result: Array[Dictionary] = []
@@ -320,28 +342,25 @@ func unlocked_content(category: String) -> Array[Dictionary]:
 func preview_blueprint(data: Dictionary) -> Dictionary:
 	var body := registry.get_def("bodies", str(data.get("body_id", "")))
 	var effect := registry.get_def("effects", str(data.get("effect_id", "")))
-	var material := registry.get_def("materials", str(data.get("material_id", "")))
+	var material := registry.get_def("materials", str(body.get("base_material_id", "")))
 	if body.is_empty() or effect.is_empty() or material.is_empty():
 		return {"valid": false, "message": "Grundkörper, Effekt und Material werden benötigt."}
+	if data.has("material_id") and str(data.material_id) != str(material.id):
+		return {"valid":false, "message":"Das Basismaterial ist an den Grundkörper gebunden. / The base material is fixed by the body."}
+	if not str(data.get("secondary_material_id", "")).is_empty():
+		return {"valid":false, "message":"Zusatzmaterial wird nicht mehr unterstützt. / Additional material is no longer supported."}
 	for definition: Dictionary in [body, effect]:
 		if not _is_content_unlocked(definition):
 			return {"valid": false, "message": "Nicht erforschter Bestandteil: %s" % definition.id}
 	var secondary_effect_id := str(data.get("secondary_effect_id", ""))
-	var secondary_material_id := str(data.get("secondary_material_id", ""))
 	var secondary_effect := registry.get_def("effects", secondary_effect_id)
-	var secondary_material := registry.get_def("materials", secondary_material_id)
-	if (not secondary_effect_id.is_empty() or not secondary_material_id.is_empty()) and not complex_blueprints_unlocked():
-		return {"valid":false, "message":"Sekundäreffekt und Zusatzmaterial benötigen die Forschung Komplexe Baupläne."}
+	if not secondary_effect_id.is_empty() and not complex_blueprints_unlocked():
+		return {"valid":false, "message":"Sekundäreffekte benötigen die Forschung Komplexe Baupläne. / Secondary effects require Complex Blueprints research."}
 	if not secondary_effect_id.is_empty():
 		if secondary_effect.is_empty() or not _is_content_unlocked(secondary_effect):
 			return {"valid":false, "message":"Ungültiger oder gesperrter Sekundäreffekt."}
 		if secondary_effect_id == str(effect.id):
 			return {"valid":false, "message":"Primär- und Sekundäreffekt müssen verschieden sein."}
-	if not secondary_material_id.is_empty():
-		if secondary_material.is_empty():
-			return {"valid":false, "message":"Unbekanntes Zusatzmaterial."}
-		if secondary_material_id == str(material.id):
-			return {"valid":false, "message":"Haupt- und Zusatzmaterial müssen verschieden sein."}
 	var combination := effect_combination_status(str(effect.id), secondary_effect_id)
 	if not bool(combination.ok):
 		return {"valid":false, "message":str(combination.message)}
@@ -362,11 +381,13 @@ func preview_blueprint(data: Dictionary) -> Dictionary:
 	var tags: Array = []
 	var goods_classes: Array[String] = []
 	for definition: Dictionary in [body, effect, material]:
+		quality_delta += float(definition.get("quality_delta", 0.0))
 		_add_stats(stats, definition.get("stats", {}))
 		_add_tags(tags, definition.get("tags", []))
 		_add_string_values(goods_classes, definition.get("goods_classes", []))
 		hours *= float(definition.get("hours_multiplier", 1.0))
 	if not secondary_effect.is_empty():
+		quality_delta += float(secondary_effect.get("quality_delta", 0.0)) * SECONDARY_EFFECT_FACTOR
 		_add_scaled_stats(stats, secondary_effect.get("stats", {}), SECONDARY_EFFECT_FACTOR)
 		_add_tags(tags, secondary_effect.get("tags", []))
 		_add_string_values(goods_classes, secondary_effect.get("goods_classes", []))
@@ -375,12 +396,6 @@ func preview_blueprint(data: Dictionary) -> Dictionary:
 		difficulty += secondary_difficulty
 		hours += secondary_difficulty
 		hours *= _scaled_multiplier(float(secondary_effect.get("hours_multiplier", 1.0)), SECONDARY_EFFECT_FACTOR)
-	if not secondary_material.is_empty():
-		_add_scaled_stats(stats, secondary_material.get("stats", {}), SECONDARY_MATERIAL_STAT_FACTOR)
-		_add_tags(tags, secondary_material.get("tags", []))
-		_add_string_values(goods_classes, secondary_material.get("goods_classes", []))
-		material_cost += material_buy_price(str(secondary_material.id))
-		hours *= _scaled_multiplier(float(secondary_material.get("hours_multiplier", 1.0)), SECONDARY_MATERIAL_STAT_FACTOR)
 	var modifier_breakdown: Array[Dictionary] = []
 	for modifier_id: Variant in modifiers:
 		var modifier := registry.get_def("modifiers", str(modifier_id))
@@ -397,9 +412,6 @@ func preview_blueprint(data: Dictionary) -> Dictionary:
 		stats[key] = maxf(0.0, float(stats[key]))
 	var material_quality := float(material.get("quality", 0.5))
 	var material_requirements: Array[Dictionary] = [{"material_id":str(material.id), "quantity":2, "quality_weight":2.0}]
-	if not secondary_material.is_empty():
-		material_quality = (material_quality * 2.0 + float(secondary_material.get("quality", 0.5))) / 3.0
-		material_requirements.append({"material_id":str(secondary_material.id), "quantity":1, "quality_weight":1.0})
 	return {
 		"valid": true,
 		"stats": stats,
@@ -415,7 +427,6 @@ func preview_blueprint(data: Dictionary) -> Dictionary:
 		"material_id": material.id,
 		"material_per_unit": 2,
 		"secondary_effect_id":secondary_effect_id,
-		"secondary_material_id":secondary_material_id,
 		"material_requirements":material_requirements,
 		"material_quality_estimate":material_quality,
 		"component_breakdown":{"modifiers":modifier_breakdown},
@@ -433,8 +444,8 @@ func restore(data: Dictionary) -> Dictionary:
 	if not version_error.is_empty():
 		return _result(false, version_error, {"code":"corrupt"})
 	var saved_version := int(data.get("save_version", -1))
-	if saved_version < 1 or saved_version > SAVE_VERSION:
-		return _result(false, "Nicht unterstützte Spielstandsversion.", {"code":"incompatible_version"})
+	if saved_version != SAVE_VERSION:
+		return _result(false, "Die festen Basismaterialien benötigen eine neue Partie. Alte Spielstände bleiben unverändert. / Fixed base materials require a new game; old saves are unchanged.", {"code":"incompatible_version"})
 	var shape_error := SaveValidation.shape(data, saved_version)
 	if not shape_error.is_empty():
 		return _result(false, shape_error, {"code":"corrupt"})
@@ -518,7 +529,7 @@ func _initialize_unlocks() -> void:
 
 func _reconcile_unlocks() -> void:
 	_initialize_unlocks()
-	for project: Dictionary in registry.all("research"):
+	for project: Dictionary in research_projects:
 		if not bool((state.unlocked as Dictionary).get(str(project.id), false)):
 			continue
 		for unlock: Variant in project.get("unlocks", []):
@@ -536,7 +547,7 @@ func _initialize_workshop() -> void:
 
 func _initialize_staff() -> void:
 	var starters: PackedStringArray = ["base:elara", "base:torben", "base:selin"]
-	var station_ids: PackedStringArray = ["station_1", "", "station_2"]
+	var station_ids: PackedStringArray = ["station_1", "station_3", "station_2"]
 	for index: int in starters.size():
 		state.staff.append({"id": starters[index], "station_id": station_ids[index]})
 
@@ -628,56 +639,77 @@ func _initialize_rivals() -> void:
 			"last_action": "Forschung begonnen",
 		}
 
-func _start_research(project_id: String) -> Dictionary:
+func _start_research(project_id: String, team_id: int = 0) -> Dictionary:
 	var project := registry.get_def("research", project_id)
-	if project.is_empty():
-		return _result(false, "Unbekanntes Forschungsprojekt.")
-	if bool((state.unlocked as Dictionary).get(project_id, false)):
-		return _result(false, "Diese Forschung ist bereits abgeschlossen.")
+	if not _valid_team(team_id) or project.is_empty():
+		return _result(false, "Unbekanntes Projekt oder Team. / Unknown project or team.")
+	if state.unlocked.get(project_id, false) or state.pending_breakthroughs.has(project_id):
+		return _result(false, "Theorie bereits abgeschlossen. / Theory already complete.")
 	if not _research_prerequisites_met(project):
-		return _result(false, "Voraussetzungen sind noch nicht erfüllt.")
-	var changed := str(state.active_research) != project_id
-	state.active_research = project_id
-	if changed:
-		state.research_ramp = RAMP_HOURS
-	_emit("ResearchStarted", {"project_id": project_id})
-	return _result(true, "Forschung gestartet.")
+		return _result(false, "Forschung oder Unternehmensstufe fehlt. / Research or company level missing.")
+	if not state.focus_change.is_empty() and int(state.focus_change.team_id) == team_id:
+		return _result(false, "Team stellt den Schwerpunkt um. / Team is changing focus.")
+	for other: int in (state.research_teams as Array).size():
+		if other != team_id and str(state.research_teams[other].project_id) == project_id:
+			return _result(false, "Projekt läuft bereits im anderen Team. / Project already assigned.")
+	var team: Dictionary = state.research_teams[team_id]
+	if str(team.project_id) != project_id:
+		team.ramp = maxi(0, RAMP_HOURS - int(research_benefit("ramp_reduction")))
+	team.project_id = project_id
+	_sync_research_legacy()
+	_emit("ResearchStarted", {"project_id":project_id, "team_id":team_id})
+	return _result(true, "Forschung gestartet. / Research started.")
 
-func _pause_research() -> Dictionary:
-	if str(state.active_research).is_empty():
-		return _result(false, "Keine aktive Forschung.")
-	state.active_research = ""
-	state.research_ramp = 0
-	return _result(true, "Forschung pausiert; Fortschritt bleibt erhalten.")
+func _pause_research(team_id: int = 0) -> Dictionary:
+	if not _valid_team(team_id):
+		return _result(false, "Unbekanntes Team. / Unknown team.")
+	state.research_teams[team_id].project_id = ""
+	state.research_teams[team_id].ramp = 0
+	_sync_research_legacy()
+	return _result(true, "Forschung pausiert; Fortschritt bleibt erhalten. / Research paused; progress retained.")
 
 func _tick_research() -> void:
-	var project_id := str(state.active_research)
-	if project_id.is_empty():
-		return
-	var project := registry.get_def("research", project_id)
-	if project.is_empty():
-		return
-	var capacity := research_rate(project_id, false)
-	if capacity <= 0.0:
-		return
-	var hourly_cost := float(project.get("hourly_cost", 0))
-	state.cash = float(state.cash) - hourly_cost
-	state.research_cost_today = float(state.get("research_cost_today", 0.0)) + hourly_cost
-	_add_journal("research", -hourly_cost, str(project.get("name_de", project_id)), false)
-	if int(state.research_ramp) > 0:
-		capacity *= 0.55
-		state.research_ramp = int(state.research_ramp) - 1
-	var progress: Dictionary = state.research_progress
-	progress[project_id] = float(progress.get(project_id, 0.0)) + capacity
-	if float(progress[project_id]) >= float(project.get("cost_hours", 1)):
-		_complete_research(project)
+	for team_id: int in (state.research_teams as Array).size():
+		if not state.focus_change.is_empty() and int(state.focus_change.team_id) == team_id:
+			state.focus_change.progress = float(state.focus_change.progress) + research_rate("", false, team_id)
+			if float(state.focus_change.progress) >= float(scenario.focus.work):
+				state.focus_branch = str(state.focus_change.branch_id)
+				state.focus_change = {}
+				_emit("FocusChanged", {"branch_id":state.focus_branch})
+			continue
+		var team: Dictionary = state.research_teams[team_id]
+		var project_id := str(team.project_id)
+		if project_id.is_empty():
+			continue
+		var project := registry.get_def("research", project_id)
+		var capacity := research_rate(project_id, false, team_id)
+		if capacity <= 0.0:
+			continue
+		var cost := float(project.get("hourly_cost", 0.0))
+		state.cash = float(state.cash) - cost
+		state.research_cost_today = float(state.research_cost_today) + cost
+		_add_journal("research", -cost, str(project.name_de), false)
+		if int(team.ramp) > 0:
+			capacity *= 0.55
+			team.ramp = int(team.ramp) - 1
+		state.research_progress[project_id] = float(state.research_progress.get(project_id, 0.0)) + capacity
+		if float(state.research_progress[project_id]) >= float(project.cost_hours):
+			state.research_progress[project_id] = float(project.cost_hours)
+			team.project_id = ""
+			team.ramp = 0
+			if not (project.get("proofs", []) as Array).is_empty():
+				state.pending_breakthroughs[project_id] = true
+				_emit("PrototypeRequired", {"project_id":project_id})
+			else:
+				_complete_research(project)
+	_sync_research_legacy()
 
 func _complete_research(project: Dictionary) -> void:
 	var project_id := str(project.id)
+	_finish_race(project_id, "player")
 	(state.unlocked as Dictionary)[project_id] = true
 	for unlock: Variant in project.get("unlocks", []):
 		(state.unlocked as Dictionary)[str(unlock)] = true
-	state.active_research = ""
 	state.reputation = float(state.reputation) + 3.0 + float(project.get("tier", 1))
 	_emit("ResearchCompleted", {"project_id": project_id, "tier": project.get("tier", 1), "hybrid": project.get("hybrid", false)})
 	var profession := _foundation_profession(project)
@@ -685,6 +717,9 @@ func _complete_research(project: Dictionary) -> void:
 		state.player_profession = profession
 		state.profession_choice_required = false
 		_emit("ProfessionChosen", {"profession_id":profession})
+	if research_benefit("second_team") > 0 and (state.research_teams as Array).size() == 1:
+		state.research_teams.append({"project_id":"", "ramp":0})
+	_update_company_progress()
 
 func _choose_profession(profession_id: String) -> Dictionary:
 	if not bool(state.get("profession_choice_required", false)) or not str(state.get("player_profession", "")).is_empty():
@@ -706,43 +741,44 @@ func _set_wage_level(value: float) -> Dictionary:
 	state.pending_wage_level = normalized
 	return _result(true, "Lohnniveau von %d %% für den nächsten Spieltag vorgemerkt." % roundi(normalized * 100.0))
 
-func research_rate(project_id: String = "", include_ramp: bool = true) -> float:
-	if project_id.is_empty():
-		project_id = str(state.active_research)
-	var project := registry.get_def("research", project_id)
-	if project.is_empty():
+func research_rate(project_id: String = "", include_ramp: bool = true, team_id: int = -1) -> float:
+	if team_id < 0:
+		team_id = research_team_for(project_id)
+	if not _valid_team(team_id):
 		return 0.0
-	var discipline_id := str(project.get("discipline", ""))
+	if project_id.is_empty():
+		project_id = str(state.research_teams[team_id].project_id)
+	var project := registry.get_def("research", project_id)
 	var capacity := 0.0
-	for staff_entry: Variant in state.staff:
-		var staff_def := registry.get_def("staff", str((staff_entry as Dictionary).id))
-		if _staff_station_kind(staff_entry as Dictionary) == "research":
-			var station := _station_by_id(str((staff_entry as Dictionary).get("station_id", "")))
-			var station_def := registry.get_def("stations", str(station.get("type", "")))
-			var contribution := float(staff_def.get("research", 0.0)) * float(station_def.get("capacity", 1.0)) * RESEARCH_WORK_SCALE
-			if not bool(project.get("general", false)) and str(staff_def.get("specialty", "")) == discipline_id:
-				contribution *= 1.2
-			capacity += contribution
-	var multipliers: Dictionary = property.get("research_multipliers", {})
+	for entry: Dictionary in state.staff:
+		var station_id := str(entry.get("station_id", ""))
+		if _staff_station_kind(entry) != "research" or int(state.station_teams.get(station_id, 0)) != team_id:
+			continue
+		var person := registry.get_def("staff", str(entry.id))
+		var station := _station_by_id(station_id)
+		var contribution := float(person.get("research", 0.0)) * float(registry.get_def("stations", str(station.type)).get("capacity", 1.0)) * RESEARCH_WORK_SCALE
+		if not bool(project.get("general", false)) and not project.is_empty() and str(person.get("specialty", "")) == str(project.get("discipline", "")):
+			contribution *= 1.2
+		capacity += contribution
 	if not bool(project.get("general", false)):
-		capacity *= float(multipliers.get(discipline_id, 1.0))
-	capacity *= wage_performance_multiplier()
-	if include_ramp and int(state.research_ramp) > 0:
+		capacity *= float((property.get("research_multipliers", {}) as Dictionary).get(str(project.get("discipline", "")), 1.0))
+	capacity *= wage_performance_multiplier() * (1.0 + research_benefit("research_rate"))
+	if not str(state.focus_branch).is_empty() and str(project.get("branch", "")) == str(state.focus_branch):
+		capacity *= 1.0 + float(scenario.focus.bonus)
+	if include_ramp and int(state.research_teams[team_id].ramp) > 0:
 		capacity *= 0.55
 	return capacity
 
-func research_hours_remaining(project_id: String) -> int:
+func research_hours_remaining(project_id: String, team_id: int = -1) -> int:
+	if team_id < 0:
+		team_id = research_team_for(project_id)
 	var project := registry.get_def("research", project_id)
-	var normal_rate := research_rate(project_id, false)
-	if project.is_empty() or normal_rate <= 0.0:
+	var rate := research_rate(project_id, false, team_id)
+	if project.is_empty() or rate <= 0:
 		return -1
-	var remaining := maxf(0.0, float(project.get("cost_hours", 0)) - float((state.research_progress as Dictionary).get(project_id, 0.0)))
-	var ramp_ticks := int(state.research_ramp) if project_id == str(state.active_research) else 0
-	var ramp_rate := normal_rate * 0.55
-	var ramp_work := ramp_rate * ramp_ticks
-	if remaining <= ramp_work:
-		return int(ceil(remaining / ramp_rate))
-	return ramp_ticks + int(ceil((remaining - ramp_work) / normal_rate))
+	var remaining := maxf(0.0, float(project.cost_hours) - float(state.research_progress.get(project_id, 0.0)))
+	var ramp := int(state.research_teams[team_id].ramp) if str(state.research_teams[team_id].project_id) == project_id else 0
+	return int(ceil(remaining / (rate * 0.55))) if remaining <= ramp * rate * 0.55 else ramp + int(ceil((remaining - ramp * rate * 0.55) / rate))
 
 func _create_blueprint(data: Dictionary) -> Dictionary:
 	var preview := preview_blueprint(data)
@@ -753,6 +789,10 @@ func _create_blueprint(data: Dictionary) -> Dictionary:
 	var blueprint := data.duplicate(true)
 	blueprint["id"] = blueprint_id
 	blueprint["name"] = str(data.get("name", "Artefakt %d" % int(state.next_blueprint)))
+	blueprint["material_id"] = str(preview.material_id)
+	blueprint["secondary_effect_id"] = str(data.get("secondary_effect_id", ""))
+	blueprint["modifier_ids"] = data.get("modifier_ids", []).duplicate()
+	blueprint.erase("secondary_material_id")
 	blueprint["computed"] = preview
 	(state.blueprints as Dictionary)[blueprint_id] = blueprint
 	_emit("BlueprintCreated", {"blueprint_id": blueprint_id})
@@ -822,35 +862,6 @@ func _set_production_enabled(station_id: String, enabled: bool) -> Dictionary:
 	(state.production_lines as Dictionary)[station_id] = line
 	return _result(true, "Produktion gestartet." if enabled else "Produktion pausiert.")
 
-func _purchase_material(material_id: String, quantity: int) -> Dictionary:
-	var material := registry.get_def("materials", material_id)
-	if material.is_empty() or quantity <= 0:
-		return _result(false, "Ungültiger Materialkauf.")
-	if quantity > material_free_capacity(material_id):
-		return _result(false, "Nicht genug Lagerplatz für diesen Materialkauf.")
-	var cost := _material_purchase_cost(material_id, quantity)
-	if float(state.cash) < cost:
-		return _result(false, "Nicht genug Gold für den Materialkauf.")
-	state.cash = float(state.cash) - cost
-	_add_inventory(material_id, quantity, float(material.get("quality", 0.5)))
-	_add_journal("procurement", -cost, "Materialkauf: %s" % material.get("name_de", material_id))
-	return _result(true, "%d Einheiten Material gekauft." % quantity)
-
-func _sell_material(material_id: String, quantity: int) -> Dictionary:
-	var material := registry.get_def("materials", material_id)
-	var stock: Dictionary = (state.inventory as Dictionary).get(material_id, {})
-	if material.is_empty() or quantity <= 0:
-		return _result(false, "Ungültiger Materialverkauf.")
-	if int(stock.get("quantity", 0)) < quantity:
-		return _result(false, "Nicht genug Material für diesen Verkauf.")
-	var quality := float(stock.get("quality", material.get("quality", 0.5)))
-	var revenue := snappedf(material_sell_price(material_id, quality) * quantity, 0.01)
-	stock.quantity = int(stock.quantity) - quantity
-	(state.inventory as Dictionary)[material_id] = stock
-	_record_material_sale(material_id, quantity, quality, revenue, false)
-	_add_journal("raw_material_sale", revenue, "Rohstoffverkauf: %s" % material.get("name_de", material_id))
-	return _result(true, "%d Einheiten %s für %.2f G verkauft." % [quantity, material.get("name_de", material_id), revenue])
-
 func _tick_production() -> void:
 	for station: Dictionary in production_stations():
 		var station_id := str(station.id)
@@ -878,7 +889,7 @@ func _tick_production() -> void:
 
 func _complete_production_unit(station_id: String, line: Dictionary, blueprint: Dictionary, required: float) -> void:
 	var worker_quality := float(line.get("quality_work", required)) / maxf(0.0001, required)
-	var quality := _roll_quality(float((blueprint.computed as Dictionary).difficulty), float(line.get("material_quality", 0.5)), worker_quality, float((blueprint.computed as Dictionary).get("quality_delta", 0.0)))
+	var quality := _roll_quality(float((blueprint.computed as Dictionary).difficulty), float(line.get("material_quality", 0.5)), worker_quality, float((blueprint.computed as Dictionary).get("quality_delta", 0.0)) + research_benefit("quality_bonus") + float(registry.get_def("stations", str(_station_by_id(station_id).type)).get("quality_bonus", 0.0)))
 	var products: Dictionary = state.products
 	var blueprint_id := str(blueprint.id)
 	var current: Dictionary = products.get(blueprint_id, {"quantity":0, "average_quality":0.0, "unit_cost":float((blueprint.computed as Dictionary).unit_cost)})
@@ -975,7 +986,7 @@ func _unit_supply_status(blueprint: Dictionary) -> Dictionary:
 			missing_by_material[material_id] = missing
 			missing_materials.append(material_id)
 			purchase_cost += _material_purchase_cost(material_id, missing)
-	if not missing_by_material.is_empty() and not _has_storage_worker():
+	if not missing_by_material.is_empty() and not has_storage_worker():
 		return {"can_supply":false, "status":"no_material", "missing_by_material":missing_by_material, "missing_materials":missing_materials, "purchase_cost":purchase_cost}
 	if float(state.cash) < purchase_cost + float((blueprint.computed as Dictionary).get("processing_cost", 0.0)):
 		return {"can_supply":false, "status":"no_cash", "missing_by_material":missing_by_material, "missing_materials":missing_materials, "purchase_cost":purchase_cost}
@@ -1021,6 +1032,7 @@ func _tick_day() -> void:
 	_refresh_applicants(false)
 	_apply_pending_wage_level()
 	_update_insolvency()
+	_update_company_progress()
 	_check_victory()
 
 func _tick_sources() -> void:
@@ -1105,6 +1117,7 @@ func _run_market() -> void:
 	var report: Dictionary = {}
 	var artifact_revenue := 0.0
 	var player_sales := 0
+	var customer_units: Dictionary = {}
 	var total_market := 0
 	for customer: Dictionary in registry.all("customers"):
 		var customer_sales := 0
@@ -1144,6 +1157,8 @@ func _run_market() -> void:
 			customer_sales += sold
 			player_sales += sold
 			state.market_units_sold = int(state.get("market_units_sold", 0)) + sold
+			customer_units[str(customer.id)] = int(customer_units.get(str(customer.id), 0)) + sold
+			_record_master_sale(blueprint, sold)
 			_add_journal("sale", revenue, str(blueprint.name), false)
 		report[str(customer.id)] = {"demand":demand, "player_sales":customer_sales}
 	var raw_sales: Dictionary = state.get("raw_material_sales_today", {})
@@ -1175,6 +1190,10 @@ func _run_market() -> void:
 	state.market_report["production_cost"] = float(state.get("production_cost_today", 0.0))
 	state.market_report["interest"] = float(state.get("last_interest_paid", 0.0))
 	state.market_report["operating_net"] = daily_revenue - float(state.market_report.wages) - float(state.market_report.research_cost) - float(state.market_report.interest) - float(state.market_report.production_cost)
+	if bool(state.unlocked.get("base:trade_mastery", false)):
+		state.merchant_history.append({"day":current_day(), "revenue":artifact_revenue, "net":float(state.market_report.operating_net), "customers":customer_units})
+		while (state.merchant_history as Array).size() > int(scenario.victory.merchant_days):
+			state.merchant_history.pop_front()
 	state.raw_material_sales_today = {}
 	state.research_cost_today = 0.0
 	state.production_cost_today = 0.0
@@ -1192,7 +1211,7 @@ func _customer_score(customer: Dictionary, blueprint: Dictionary, product: Dicti
 			class_matches += 1
 	score += mini(2, class_matches) * 12.0
 	var affordability := clampf(float(customer.get("budget", 1)) / maxf(1.0, price), 0.0, 1.3)
-	return score * affordability * (0.85 + float(state.reputation) / 100.0)
+	return score * affordability * (0.85 + minf(100.0, float(state.reputation)) / 100.0) * (1.0 + research_benefit("market_score"))
 
 func _pay_daily_costs() -> void:
 	var wages := daily_wages()
@@ -1248,7 +1267,9 @@ func _update_contract_market() -> void:
 		return
 	var capacity := _contract_offer_capacity()
 	var candidates: Array[Dictionary] = []
-	var available_classes := available_goods_classes(player_profession)
+	var available_classes: Array[String] = []
+	for profession: String in _completed_foundation_professions():
+		_add_string_values(available_classes, available_goods_classes(profession))
 	for definition: Dictionary in registry.all("contracts"):
 		var contract_id := str(definition.id)
 		if offers.has(contract_id) or (state.active_contracts as Dictionary).has(contract_id):
@@ -1257,7 +1278,7 @@ func _update_contract_market() -> void:
 			continue
 		if int(cooldowns.get(contract_id, 0)) > current_day():
 			continue
-		if not (definition.get("eligible_professions", []) as Array).has(player_profession):
+		if not _arrays_overlap(definition.get("eligible_professions", []), _completed_foundation_professions()):
 			continue
 		var customer_id := str(definition.get("customer", ""))
 		if float((state.faction_reputation as Dictionary).get(customer_id, 0.0)) < float(definition.get("min_faction_reputation", 0.0)):
@@ -1306,7 +1327,9 @@ func _submit_contract(contract_id: String) -> Dictionary:
 		remaining -= delivered
 		(state.products as Dictionary)[blueprint_id] = product
 	state.cash = float(state.cash) + float(contract.reward)
+	state.regular_contracts_completed = int(state.regular_contracts_completed) + 1
 	state.reputation = float(state.reputation) + float(contract.prestige)
+	_update_company_progress()
 	var customer_id := str(contract.get("customer", ""))
 	(state.faction_reputation as Dictionary)[customer_id] = float((state.faction_reputation as Dictionary).get(customer_id, 0.0)) + float(contract.get("faction_reputation_reward", 0.0))
 	(state.active_contracts as Dictionary).erase(contract_id)
@@ -1318,48 +1341,46 @@ func _submit_contract(contract_id: String) -> Dictionary:
 	return _result(true, "Auftrag abgeschlossen: %s · +%.0f Gold · +%.0f Ruf · +%.0f Kundenansehen." % [str(contract.get("name_de", contract_id)), float(contract.reward), float(contract.prestige), float(contract.get("faction_reputation_reward", 0.0))])
 
 func _tick_rivals() -> void:
-	for rival_id: Variant in (state.rivals as Dictionary).keys():
-		var runtime: Dictionary = (state.rivals as Dictionary)[rival_id]
-		var project_id := str(runtime.active_research)
-		if project_id.is_empty():
-			continue
-		var project := registry.get_def("research", project_id)
-		var profile := registry.get_def("rivals", str(rival_id))
-		var progress: Dictionary = runtime.research_progress
-		var cost := float(project.get("hourly_cost", 0))
-		if float(runtime.cash) < cost:
-			runtime.last_action = "Spart für Forschung"
-			continue
-		runtime.cash = float(runtime.cash) - cost
-		progress[project_id] = float(progress.get(project_id, 0)) + 3.0 * float(profile.get("research_efficiency", 1.0))
-		if float(progress[project_id]) >= float(project.get("cost_hours", 1)):
-			(runtime.unlocked as Dictionary)[project_id] = true
-			runtime.reputation = float(runtime.reputation) + 4.0
-			runtime.last_action = "Forschung abgeschlossen: %s" % project.get("name_de", project_id)
-			var next := _first_project_for(str(profile.focus), int(project.get("tier", 1)) + 1)
-			runtime.active_research = next
-			_emit("RivalResearchCompleted", {"rival_id":rival_id, "project_id":project_id})
-		(state.rivals as Dictionary)[rival_id] = runtime
-	if int(state.hour) % HOURS_PER_DAY == 0:
-		for rival_id: Variant in (state.rivals as Dictionary).keys():
-			var runtime: Dictionary = (state.rivals as Dictionary)[rival_id]
-			var profile := registry.get_def("rivals", str(rival_id))
-			var income := 420.0 * float(profile.get("market_efficiency", 1.0)) + rng_rivals.range_int(-50, 80)
-			runtime.cash = float(runtime.cash) + income
-			runtime.market_share = clampf(float(runtime.market_share) + (rng_rivals.randf() - 0.45) * 0.01, 0.1, 0.38)
-			(state.rivals as Dictionary)[rival_id] = runtime
+	for rival_id: String in state.rivals:
+		var rival: Dictionary = state.rivals[rival_id]
+		var profile := registry.get_def("rivals", rival_id)
+		var project_id := str(rival.active_research)
+		if not project_id.is_empty():
+			var project := registry.get_def("research", project_id)
+			var cost := float(project.get("hourly_cost", 0.0))
+			if float(rival.cash) >= cost:
+				rival.cash = float(rival.cash) - cost
+				var proof_work := 288.0 if not (project.get("proofs", []) as Array).is_empty() else 0.0
+				var progress := float(rival.research_progress.get(project_id, 0.0)) + 3.0 * float(profile.research_efficiency)
+				rival.research_progress[project_id] = progress
+				rival.last_action = "Praktische Erprobung (abstrakt) / Practical trials (abstract)" if progress >= float(project.cost_hours) else "Forschung / Research"
+				if progress >= float(project.cost_hours) + proof_work:
+					rival.unlocked[project_id] = true
+					rival.reputation = float(rival.reputation) + 4.0
+					rival.active_research = ""
+					_emit("RivalResearchCompleted", {"rival_id":rival_id, "project_id":project_id})
+					_finish_race(project_id, rival_id)
+		if str(rival.active_research).is_empty():
+			for next_id: String in profile.get("research_path", []):
+				var next := registry.get_def("research", next_id)
+				if not rival.unlocked.has(next_id) and _contains_all(rival.unlocked.keys(), next.get("requires", [])):
+					rival.active_research = next_id
+					break
+		if int(state.hour) % HOURS_PER_DAY == 0:
+			rival.cash = float(rival.cash) + 420.0 * float(profile.market_efficiency) + rng_rivals.range_int(-50, 80)
+			rival.market_share = clampf(float(rival.market_share) + (rng_rivals.randf() - 0.45) * 0.01, 0.1, 0.38)
 
 func _update_races() -> void:
-	var player_project := str(state.active_research)
-	if player_project.is_empty():
-		return
-	for rival_id: Variant in (state.rivals as Dictionary).keys():
-		var runtime: Dictionary = (state.rivals as Dictionary)[rival_id]
-		if str(runtime.active_research) == player_project:
-			var race_id := "%s|%s" % [player_project, rival_id]
-			if not (state.active_races as Dictionary).has(race_id):
-				(state.active_races as Dictionary)[race_id] = {"project_id":player_project, "rival_id":rival_id, "started_hour":state.hour}
-				_emit("RaceStarted", {"project_id":player_project, "rival_id":rival_id})
+	for team: Dictionary in state.research_teams:
+		var project_id := str(team.project_id)
+		if project_id.is_empty():
+			continue
+		for rival_id: String in state.rivals:
+			if str(state.rivals[rival_id].active_research) == project_id:
+				var race_id := project_id + "|" + rival_id
+				if not state.active_races.has(race_id):
+					state.active_races[race_id] = {"project_id":project_id, "rival_id":rival_id, "started_hour":state.hour, "winner":""}
+					_emit("RaceStarted", {"project_id":project_id, "rival_id":rival_id})
 
 func _update_insolvency() -> void:
 	if float(state.cash) >= 0:
@@ -1382,19 +1403,27 @@ func _take_loan() -> Dictionary:
 	return _result(true, "5.000 Gold erhalten; 6.000 Gold Rückzahlung offen.")
 
 func _check_victory() -> void:
-	var victory_config: Dictionary = scenario.get("victory", {})
-	for project: Dictionary in registry.all("research"):
-		if int(project.get("tier", 0)) >= int(victory_config.get("technology_tier", 3)) and bool((state.unlocked as Dictionary).get(str(project.id), false)):
-			state.victory = "technology"
-	var revenue_30d := 0.0
-	for value: Variant in state.revenue_history:
-		revenue_30d += float(value)
-	if float(state.cash) >= float(victory_config.get("economic_cash", INF)) and revenue_30d >= float(victory_config.get("economic_revenue_30d", INF)) and float((state.market_report as Dictionary).get("player_share", 0)) >= float(victory_config.get("economic_share", 1)):
-		state.victory = "economic"
-	if (state.completed_contracts as Array).has(str(victory_config.get("hybrid_contract", "impossible"))):
-		state.victory = "hybrid"
-	if not str(state.victory).is_empty():
-		_emit("Victory", {"path":state.victory})
+	var config: Dictionary = scenario.victory
+	var master: Dictionary = state.master_project
+	if not master.is_empty() and not bool(state.victories.has("master")):
+		if current_day() <= int(master.deadline_day) and int(master.sales) >= int(config.master_sales):
+			_award_victory("master")
+	var history: Array = state.merchant_history
+	if history.size() == int(config.merchant_days) and not state.victories.has("merchant"):
+		var revenue := 0.0
+		var net := 0.0
+		var customers: Dictionary = {}
+		for day: Dictionary in history:
+			revenue += float(day.revenue)
+			net += float(day.net)
+			for id: String in day.customers:
+				customers[id] = int(customers.get(id, 0)) + int(day.customers[id])
+		var served := 0
+		for units: Variant in customers.values():
+			if int(units) >= int(config.merchant_units):
+				served += 1
+		if revenue >= float(config.merchant_revenue) and net > 0 and served >= int(config.merchant_customers) and float(state.cash) - float(state.loan_balance) >= float(config.merchant_net_cash):
+			_award_victory("merchant")
 
 func _place_room(room_type: String, rect_data: Array) -> Dictionary:
 	var definition := registry.get_def("rooms", room_type)
@@ -1412,7 +1441,7 @@ func _place_room(room_type: String, rect_data: Array) -> Dictionary:
 			return _result(false, "Der Raum überschneidet einen vorhandenen Raum.")
 	if _rect_hits_source(rect):
 		return _result(false, "Der Raum würde eine Rohstoffquelle überbauen.")
-	var cost := rect.get_area() * float(definition.get("cost_per_tile", 0)) * float(property.get("construction_multiplier", 1.0))
+	var cost := rect.get_area() * float(definition.get("cost_per_tile", 0)) * float(property.get("construction_multiplier", 1.0)) * (1.0 - minf(0.5, research_benefit("construction_discount")))
 	if float(state.cash) < cost:
 		return _result(false, "Nicht genug Gold für den Raum.")
 	state.cash = float(state.cash) - cost
@@ -1481,7 +1510,7 @@ func _resize_room(room_id: String, rect_data: Array) -> Dictionary:
 	var intersection := old_rect.intersection(new_rect)
 	var added_tiles := new_rect.get_area() - intersection.get_area()
 	var removed_tiles := old_rect.get_area() - intersection.get_area()
-	var tile_cost := float(definition.get("cost_per_tile", 0)) * float(property.get("construction_multiplier", 1.0))
+	var tile_cost := float(definition.get("cost_per_tile", 0)) * float(property.get("construction_multiplier", 1.0)) * (1.0 - minf(0.5, research_benefit("construction_discount")))
 	var cost := added_tiles * tile_cost + removed_tiles * tile_cost * 0.5
 	if float(state.cash) < cost:
 		return _result(false, "Nicht genug Gold für den Umbau.")
@@ -1508,7 +1537,7 @@ func _place_station(station_type: String, position_data: Array) -> Dictionary:
 			return _result(false, "Dieses Feld ist bereits belegt.")
 	if not valid_room:
 		return _result(false, "Station benötigt den passenden Raumtyp.")
-	var cost := float(definition.get("cost", 0)) * float(property.get("construction_multiplier", 1.0))
+	var cost := float(definition.get("cost", 0)) * float(property.get("construction_multiplier", 1.0)) * (1.0 - minf(0.5, research_benefit("construction_discount")))
 	if float(state.cash) < cost:
 		return _result(false, "Nicht genug Gold für die Station.")
 	state.cash = float(state.cash) - cost
@@ -1574,7 +1603,7 @@ func _production_work_rate(station: Dictionary, worker: Dictionary) -> float:
 	if station.is_empty() or worker.is_empty():
 		return 0.0
 	var station_def := registry.get_def("stations", str(station.type))
-	return float(station_def.get("capacity", 1.0)) * float(worker.get("production_speed", worker.get("craft", 1.0))) * wage_performance_multiplier()
+	return float(station_def.get("capacity", 1.0)) * float(worker.get("production_speed", worker.get("craft", 1.0))) * wage_performance_multiplier() * (1.0 + research_benefit("production_rate"))
 
 func _quality_estimate(difficulty: float, material_quality: float, worker_quality: float = 1.0, quality_delta: float = 0.0) -> float:
 	return clampf(48.0 + material_quality * 36.0 - difficulty * 0.7 + (worker_quality - 1.0) * 18.0 + quality_delta, 15.0, 95.0)
@@ -1589,7 +1618,7 @@ func _staff_for_station(station_id: String) -> Dictionary:
 			return registry.get_def("staff", str(entry.id))
 	return {}
 
-func _has_storage_worker() -> bool:
+func has_storage_worker() -> bool:
 	for staff_value: Variant in state.staff:
 		if _staff_station_kind(staff_value as Dictionary) == "storage":
 			return true
@@ -1625,7 +1654,7 @@ func _event_demand_multiplier(customer_id: String) -> float:
 	return multiplier
 
 func _first_project_for(discipline_id: String, tier: int) -> String:
-	for project: Dictionary in registry.all("research"):
+	for project: Dictionary in research_projects:
 		if str(project.get("discipline", "")) == discipline_id and int(project.get("tier", 0)) == tier and not bool(project.get("hybrid", false)):
 			return str(project.id)
 	return ""
@@ -1744,9 +1773,10 @@ func _migrate_production_lines(saved_version: int) -> void:
 			_refund_line_material(line)
 			(state.production_lines as Dictionary).erase(station_id)
 			continue
-		for defaults_key: String in ["progress", "quality_work", "material_quantity", "material_quality"]:
+		for defaults_key: String in ["progress", "quality_work", "material_quality"]:
 			line[defaults_key] = float(line.get(defaults_key, 0.0))
 		line["enabled"] = bool(line.get("enabled", false))
+		line["material_quantity"] = int(line.get("material_quantity", 0))
 		line["material_reserved"] = bool(line.get("material_reserved", false))
 		line["material_id"] = str(line.get("material_id", ""))
 		var reserved_materials: Array = line.get("reserved_materials", [])
@@ -1797,7 +1827,6 @@ func _migrate_complex_blueprints(_saved_version: int) -> void:
 	for blueprint_id: Variant in (state.blueprints as Dictionary).keys():
 		var blueprint: Dictionary = (state.blueprints as Dictionary)[blueprint_id]
 		blueprint["secondary_effect_id"] = str(blueprint.get("secondary_effect_id", ""))
-		blueprint["secondary_material_id"] = str(blueprint.get("secondary_material_id", ""))
 		var preview := preview_blueprint(blueprint)
 		if bool(preview.get("valid", false)):
 			blueprint["computed"] = preview
@@ -1876,7 +1905,7 @@ func _blueprint_classification(blueprint: Dictionary) -> Dictionary:
 	var goods_classes: Array[String] = []
 	var effect := registry.get_def("effects", str(blueprint.get("effect_id", "")))
 	var secondary_effect := registry.get_def("effects", str(blueprint.get("secondary_effect_id", "")))
-	for definition: Dictionary in [registry.get_def("bodies", str(blueprint.get("body_id", ""))), effect, secondary_effect, registry.get_def("materials", str(blueprint.get("material_id", ""))), registry.get_def("materials", str(blueprint.get("secondary_material_id", "")))]:
+	for definition: Dictionary in [registry.get_def("bodies", str(blueprint.get("body_id", ""))), effect, secondary_effect, registry.get_def("materials", str(blueprint.get("material_id", "")))]:
 		_add_string_values(goods_classes, definition.get("goods_classes", []))
 	for modifier_id: Variant in blueprint.get("modifier_ids", []):
 		_add_string_values(goods_classes, registry.get_def("modifiers", str(modifier_id)).get("goods_classes", []))
@@ -1927,6 +1956,12 @@ func _foundation_profession(project: Dictionary) -> String:
 	return ""
 
 func _research_prerequisites_met(project: Dictionary) -> bool:
+	var levels: Array = scenario.get("company_levels", [])
+	var level_index := int(state.get("company_level", 1)) - 1
+	if level_index < 0 or level_index >= levels.size() or int(project.get("tier", 1)) > int(levels[level_index].max_tier):
+		return false
+	if int(state.get("company_level", 1)) < int(project.get("min_company_level", 1)):
+		return false
 	for requirement: Variant in project.get("requires", []):
 		if not bool((state.unlocked as Dictionary).get(str(requirement), false)):
 			return false
@@ -1943,7 +1978,7 @@ func _research_prerequisites_met(project: Dictionary) -> bool:
 
 func _completed_foundation_professions() -> Array[String]:
 	var result: Array[String] = []
-	for project: Dictionary in registry.all("research"):
+	for project: Dictionary in research_projects:
 		var profession := _foundation_profession(project)
 		if not profession.is_empty() and bool((state.unlocked as Dictionary).get(str(project.id), false)):
 			result.append(profession)
@@ -2006,3 +2041,243 @@ func _result(ok: bool, message: String, extra: Dictionary = {}) -> Dictionary:
 	var result := {"ok":ok, "message":message}
 	result.merge(extra)
 	return result
+
+func _valid_team(team_id: int) -> bool:
+	return team_id >= 0 and team_id < (state.research_teams as Array).size()
+
+func research_team_for(project_id: String) -> int:
+	for index: int in (state.research_teams as Array).size():
+		if not project_id.is_empty() and str(state.research_teams[index].project_id) == project_id:
+			return index
+	return 0
+
+func _sync_research_legacy() -> void:
+	state.active_research = str(state.research_teams[0].project_id)
+	state.research_ramp = int(state.research_teams[0].ramp)
+
+func research_benefit(key: String) -> float:
+	var value := 0.0
+	for project: Dictionary in research_projects:
+		if bool(state.unlocked.get(str(project.id), false)):
+			value += float((project.get("benefits", {}) as Dictionary).get(key, 0.0))
+	return value
+
+func research_status(project_id: String) -> String:
+	var project := registry.get_def("research", project_id)
+	if project.is_empty():
+		return "locked"
+	if bool(state.unlocked.get(project_id, false)):
+		return "completed"
+	if state.pending_breakthroughs.has(project_id):
+		return "prototype"
+	for team: Dictionary in state.research_teams:
+		if str(team.project_id) == project_id:
+			return "active"
+	return "available" if _research_prerequisites_met(project) else "locked"
+
+func _assign_research_team(station_id: String, team_id: int) -> Dictionary:
+	var station := _station_by_id(station_id)
+	if not _valid_team(team_id) or station.is_empty() or str(registry.get_def("stations", str(station.type)).get("kind", "")) != "research":
+		return _result(false, "Ungültiger Forschertisch oder Team. / Invalid desk or team.")
+	state.station_teams[station_id] = team_id
+	return _result(true, "Forschertisch zugewiesen. / Research desk assigned.")
+
+func available_focuses() -> Array[Dictionary]:
+	var result: Array[Dictionary] = []
+	for project: Dictionary in research_projects:
+		if str(project.get("track", "")) == "branch" and int(project.tier) == 2 and bool(state.unlocked.get(str(project.id), false)):
+			result.append({"id":str(project.branch), "name_de":str(project.branch_name_de), "name_en":str(project.branch_name_en)})
+	return result
+
+func _change_focus(branch_id: String, team_id: int) -> Dictionary:
+	if not _valid_team(team_id) or int(state.company_level) < 2 or not state.focus_change.is_empty():
+		return _result(false, "Schwerpunktwechsel derzeit nicht möglich. / Focus change unavailable.")
+	if not available_focuses().any(func(branch: Dictionary) -> bool: return str(branch.id) == branch_id) or str(state.focus_branch) == branch_id:
+		return _result(false, "Fachrichtung nicht verfügbar oder bereits gewählt. / Branch unavailable or already selected.")
+	if not bool(state.focus_chosen):
+		state.focus_chosen = true
+		state.focus_branch = branch_id
+		_emit("FocusChanged", {"branch_id":branch_id})
+		return _result(true, "Erster Schwerpunkt kostenlos gewählt. / First focus selected free of charge.")
+	var cost := float(scenario.focus.cost)
+	if float(state.cash) < cost:
+		return _result(false, "Nicht genug Gold. / Insufficient gold.")
+	state.cash = float(state.cash) - cost
+	state.focus_branch = ""
+	state.focus_change = {"branch_id":branch_id, "team_id":team_id, "progress":0.0}
+	_pause_research(team_id)
+	_add_journal("focus", -cost, "Schwerpunktwechsel / Focus change")
+	return _result(true, "Umstellung gestartet. / Focus change started.")
+
+func company_progress() -> Dictionary:
+	var research_count := 0
+	for project: Dictionary in research_projects:
+		if bool(state.unlocked.get(str(project.id), false)):
+			research_count += 1
+	return {"research":research_count, "sales":int(state.market_units_sold), "contracts":int(state.regular_contracts_completed), "breakthroughs":int(state.breakthroughs_completed), "foundations":_completed_foundation_professions().size()}
+
+func _update_company_progress() -> void:
+	var progress := company_progress()
+	for level: Dictionary in scenario.get("company_levels", []):
+		if int(level.level) <= int(state.company_level):
+			continue
+		var eligible := true
+		for key: String in ["research", "sales", "contracts", "breakthroughs", "foundations"]:
+			eligible = eligible and int(progress[key]) >= int(level.get(key, 0))
+		if bool(level.get("victory_required", false)):
+			eligible = eligible and not state.victories.is_empty()
+		if not eligible:
+			break
+		state.company_level = int(level.level)
+		_emit("CompanyAdvanced", {"level":state.company_level, "name_de":level.name_de, "name_en":level.name_en})
+
+func proof_product_matches(blueprint_id: String, requirement: Dictionary) -> bool:
+	var blueprint: Dictionary = state.blueprints.get(blueprint_id, {})
+	var product: Dictionary = state.products.get(blueprint_id, {})
+	if blueprint.is_empty() or product.is_empty() or float(product.get("average_quality", 0.0)) < float(requirement.get("min_quality", 0.0)):
+		return false
+	var computed: Dictionary = blueprint.computed
+	if not _contains_all(computed.get("profession_coverage", []), requirement.get("required_coverage", [])):
+		return false
+	var classes: Array = requirement.get("accepted_classes", [])
+	if not classes.is_empty() and not _arrays_overlap(computed.get("goods_classes", []), classes):
+		return false
+	for key: String in requirement.get("min_stats", {}):
+		if float((computed.stats as Dictionary).get(key, 0.0)) < float(requirement.min_stats[key]):
+			return false
+	var family := str(requirement.get("family_effect", ""))
+	return family.is_empty() or _blueprint_has_effect(blueprint, family)
+
+func proof_selection_status(requirements: Array, selection: Array) -> Dictionary:
+	if requirements.is_empty():
+		return _result(false, "Keine Abgabe vorgesehen. / No delivery required.")
+	var totals: Dictionary = {}
+	var used: Dictionary = {}
+	var entries: Dictionary = {}
+	for value: Variant in selection:
+		if not value is Dictionary:
+			return _result(false, "Ungültige Auswahl. / Invalid selection.")
+		var entry: Dictionary = value
+		if not Schema.check(entry, Schema.object({"requirement":Schema.integer(), "blueprint_id":"string", "quantity":Schema.integer(1)}, ["requirement", "blueprint_id", "quantity"])).is_empty():
+			return _result(false, "Ungültige Auswahlmenge. / Invalid selection quantity.")
+		var index := int(entry.requirement)
+		var id := str(entry.blueprint_id)
+		var quantity := int(entry.quantity)
+		var key := str(index) + "|" + id
+		if index >= requirements.size() or entries.has(key):
+			return _result(false, "Doppelte oder ungültige Abgabe. / Duplicate or invalid delivery.")
+		entries[key] = true
+		if not proof_product_matches(id, requirements[index]):
+			return _result(false, "Ware erfüllt die Anforderungen nicht. / Goods do not meet requirements.")
+		used[id] = int(used.get(id, 0)) + quantity
+		totals[index] = int(totals.get(index, 0)) + quantity
+		if int(used[id]) > int(state.products[id].quantity):
+			return _result(false, "Nicht genug Ware im Lager. / Insufficient stock.")
+	for index: int in requirements.size():
+		if int(totals.get(index, 0)) != int(requirements[index].quantity):
+			return _result(false, "Bitte genau die angeforderte Stückzahl auswählen. / Select the exact required quantity.")
+	return _result(true, "Abgabe möglich. / Ready to submit.", {"used":used})
+
+func _consume_proof_selection(status: Dictionary) -> void:
+	for id: String in status.used:
+		state.products[id].quantity = int(state.products[id].quantity) - int(status.used[id])
+
+func _submit_prototypes(project_id: String, selection: Array) -> Dictionary:
+	if not state.pending_breakthroughs.has(project_id):
+		return _result(false, "Forschung wartet nicht auf Prototypen. / Research is not awaiting prototypes.")
+	var project := registry.get_def("research", project_id)
+	var status := proof_selection_status(project.get("proofs", []), selection)
+	if not bool(status.ok):
+		return status
+	_consume_proof_selection(status)
+	state.pending_breakthroughs.erase(project_id)
+	state.breakthroughs_completed = int(state.breakthroughs_completed) + 1
+	_complete_research(project)
+	return _result(true, "Durchbruch abgeschlossen. / Breakthrough completed.")
+
+func _blueprint_has_effect(blueprint: Dictionary, effect_id: String) -> bool:
+	return str(blueprint.get("effect_id", "")) == effect_id or str(blueprint.get("secondary_effect_id", "")) == effect_id
+
+func final_project_requirements(project_id: String) -> Array:
+	var project := registry.get_def("research", project_id)
+	if int(state.company_level) < 4 or not bool(state.unlocked.get(project_id, false)):
+		return []
+	var config: Dictionary = scenario.victory
+	if bool(project.get("capstone", false)) and not state.victories.has("master") and state.master_project.is_empty():
+		return [{"quantity":int(config.master_quantity), "min_quality":float(config.master_quality), "family_effect":str(project.family_effect)}]
+	if bool(project.get("convergence", false)) and not state.victories.has("researcher"):
+		if state.researcher_project.is_empty():
+			return [{"quantity":int(config.researcher_demo_quantity), "min_quality":float(config.researcher_demo_quality), "family_effect":str(project.family_effect)}]
+		if str(state.researcher_project.project_id) == project_id:
+			return [{"quantity":int(config.researcher_order_quantity), "min_quality":float(config.researcher_order_quality), "family_effect":str(project.family_effect)}]
+	return []
+
+func _submit_final_project(project_id: String, selection: Array) -> Dictionary:
+	var requirements := final_project_requirements(project_id)
+	var status := proof_selection_status(requirements, selection)
+	if not bool(status.ok):
+		return status
+	_consume_proof_selection(status)
+	var project := registry.get_def("research", project_id)
+	if bool(project.get("capstone", false)):
+		state.master_project = {"project_id":project_id, "family_effect":str(project.family_effect), "sales":0, "deadline_day":current_day() + int(scenario.victory.master_days), "started_hour":int(state.hour)}
+		_emit("MasterpieceSubmitted", {"project_id":project_id})
+	elif state.researcher_project.is_empty():
+		state.researcher_project = {"project_id":project_id, "demonstrated":true}
+		_emit("DemonstrationCompleted", {"project_id":project_id})
+	else:
+		_award_victory("researcher")
+	return _result(true, "Abschlussprojekt fortgesetzt. / Final project advanced.")
+
+func _restart_master_sales() -> Dictionary:
+	if state.master_project.is_empty() or state.victories.has("master") or current_day() <= int(state.master_project.deadline_day):
+		return _result(false, "Verkaufsphase kann noch nicht neu starten. / Sales phase cannot restart yet.")
+	state.master_project.sales = 0
+	state.master_project.deadline_day = current_day() + int(scenario.victory.master_days)
+	state.master_project.started_hour = int(state.hour)
+	return _result(true, "Neue Verkaufsphase gestartet. / New sales phase started.")
+
+func _record_master_sale(blueprint: Dictionary, quantity: int) -> void:
+	var master: Dictionary = state.master_project
+	if master.is_empty() or current_day() > int(master.deadline_day) or state.victories.has("master"):
+		return
+	if _blueprint_has_effect(blueprint, str(master.family_effect)):
+		master.sales = int(master.sales) + quantity
+
+func _award_victory(path: String) -> void:
+	if state.victories.has(path):
+		return
+	state.victories[path] = current_day()
+	state.victory = path
+	state.paused = true
+	_update_company_progress()
+	_emit("Victory", {"path":path})
+
+func _finish_race(project_id: String, winner: String) -> void:
+	for race: Dictionary in state.active_races.values():
+		if str(race.project_id) == project_id and str(race.get("winner", "")).is_empty() and (winner == "player" or winner == str(race.rival_id)):
+			race.winner = winner
+			race.finished_hour = int(state.hour)
+			_emit("RaceCompleted", {"project_id":project_id, "winner":winner})
+
+func _research_command_error(command: GameCommand) -> String:
+	var fields: Dictionary = {}
+	var required: Array = []
+	match command.kind:
+		GameCommand.Kind.START_RESEARCH:
+			fields = {"project_id":"string", "team_id":Schema.integer(0, 1)}
+			required = ["project_id"]
+		GameCommand.Kind.PAUSE_RESEARCH:
+			fields = {"team_id":Schema.integer(0, 1)}
+		GameCommand.Kind.ASSIGN_RESEARCH_TEAM:
+			fields = {"station_id":"string", "team_id":Schema.integer(0, 1)}
+			required = ["station_id", "team_id"]
+		GameCommand.Kind.CHANGE_FOCUS:
+			fields = {"branch_id":"string", "team_id":Schema.integer(0, 1)}
+			required = ["branch_id"]
+		GameCommand.Kind.SUBMIT_PROTOTYPES, GameCommand.Kind.SUBMIT_FINAL_PROJECT:
+			fields = {"project_id":"string", "selection":Schema.array(Schema.object({"requirement":Schema.integer(), "blueprint_id":"string", "quantity":Schema.integer(1)}, ["requirement", "blueprint_id", "quantity"]))}
+			required = ["project_id", "selection"]
+		_:
+			return ""
+	return Schema.check(command.payload, Schema.object(fields, required), "Befehl / Command")

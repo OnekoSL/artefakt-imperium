@@ -115,11 +115,9 @@ static func _test_production(registry: ContentRegistry, check: Callable) -> void
 	check.call(restored.state.cash == 100.0 and restored.state.inventory["base:copper"].quantity == 12 and is_zero_approx(float(restored.state.production_cost_today)), "switch refunds gold and materials exactly once")
 	var legacy := reserved.duplicate(true)
 	legacy.save_version = 8
-	legacy.production_lines["station_2"].erase("reserved_processing_cost")
-	var migrated := _new_sim(registry)
-	check.call(bool(migrated.restore(legacy).ok), "version eight reserved piece migrates")
-	migrated.execute(GameCommand.configure_production("station_2", alternate))
-	check.call(migrated.state.cash == 74.0 and migrated.state.inventory["base:copper"].quantity == 12, "legacy work receives neither retroactive charge nor unearned gold refund")
+	var rejected := _new_sim(registry)
+	var before_rejection := JSON.stringify(rejected.serialize())
+	check.call(not bool(rejected.restore(legacy).ok) and JSON.stringify(rejected.serialize()) == before_rejection, "pre-expansion reservation is rejected without changes")
 	var finished := _new_sim(registry)
 	finished.restore(reserved)
 	var line: Dictionary = finished.state.production_lines["station_2"]
@@ -219,6 +217,13 @@ static func _test_mods(check: Callable) -> void:
 		_write(root.path_join("data.json"), JSON.stringify(malformed))
 		var registry := ContentRegistry.new()
 		check.call(not registry.load_all(true) and not registry.errors.is_empty() and str(registry.errors[0]).contains("data.json"), "malformed mod content returns file and field diagnostics without a script error")
+	for material: Variant in [null, "", 42, "regression:missing"]:
+		var body := {"id":"regression:body", "name_de":"Test", "name_en":"Test"}
+		if material != null:
+			body["base_material_id"] = material
+		_write(root.path_join("data.json"), JSON.stringify({"bodies":[body]}))
+		var body_registry := ContentRegistry.new()
+		check.call(not body_registry.load_all(true) and not body_registry.errors.is_empty(), "body content requires a nonempty valid base material reference: %s" % str(material))
 	_write(root.path_join("data.json"), JSON.stringify({"materials":[entry]}))
 	for field: String in ["dependencies", "overrides", "priority"]:
 		var malformed := manifest.duplicate(true)

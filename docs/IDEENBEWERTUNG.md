@@ -1,6 +1,8 @@
 # Bewertung der Ideen aus `tycoon.txt`
 
-**Stand:** 13. August 2026  
+**Stand:** 13. August 2026 (historische Bewertung)
+
+**Aktualisierung 12. September 2026:** Der implementierte Forschungs- und Fortschrittsausbau steht in [Forschung und Unternehmensfortschritt](FORSCHUNG_UND_FORTSCHRITT.md). Angaben zum damaligen Prototyp in dieser Bewertung sind keine aktuelle Bestandsliste.
 **Zweck:** Einordnung der zusätzlichen Ideen gegen Spielvision, vorhandenen Prototyp und sinnvolle Entwicklungstiefe.
 
 ## Kurzfazit

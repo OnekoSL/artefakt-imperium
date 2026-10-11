@@ -24,7 +24,8 @@
 | Einstiegsszene | `scenes/main.tscn` |
 | Spielinhalte und Balancewerte | `content/base/data.json`, `content/base/manifest.json` |
 | Beispiel für Datenmods | `mods/example/data.json`, `mods/example/manifest.json` |
-| Integrationstests und Regressionen | `tests/test_runner.gd`, `tests/test_safety.gd` |
+| Integrationstests und Regressionen | `tests/test_runner.gd`, `tests/test_safety.gd`, `tests/test_research_expansion.gd` |
+| Befehlsgesteuerte Aufstiegs- und Balancepartien | `tests/test_progression_balance.gd` |
 | Gerenderte UI-Abläufe und Kontrollbilder | `tests/test_ui_smoke.gd` |
 
 ## Architekturregeln
@@ -33,9 +34,11 @@
 - Führe neue Spielaktionen über `GameCommand` und die Befehlsverarbeitung der Simulation. Validiere Voraussetzungen dort; UI-Sperren allein reichen nicht aus.
 - Ein Tick entspricht einer Spielstunde. Die Geschwindigkeit verändert die Häufigkeit der Ticks in Echtzeit, nicht deren wirtschaftliche Ergebnisse.
 - Bewahre Determinismus: gleicher Seed und gleiche Befehlsfolge müssen denselben Simulationszustand ergeben. Verwende die vorhandenen `DeterministicRng`-Ströme statt globalem Zufall oder Uhrzeit; berücksichtige Zufallszustände beim Speichern und Laden.
+- Jeder Grundkörper benötigt eine gültige `base_material_id`; pro Artefakt werden zwei Einheiten verbraucht. Einkauf, Quellensammlung und Ernteüberschussverkauf erfordern einen zugeordneten Lageristen. Manuelle Rohstoffhandelsbefehle sind stillgelegt.
 - Pflege Inhalte und Balancewerte möglichst im Datenpaket. IDs sind stabile, namespaced Referenzen (`base:…`, `example:…`); bei Änderungen alle Verwendungen prüfen.
 - Erweitere bei neuen Inhaltskategorien oder Referenzen auch die Validierung in `ContentRegistry`. Mods bleiben Daten-/Asset-Pakete; lade keinen ausführbaren Modcode.
 - Achtung: `load_all(false)` schaltet nur `user://mods` aus. Projektmods unter `res://mods` werden weiterhin geladen.
+- Seit Version 0.3.1 gelten Speicherformat 11 und Content-Kompatibilität 0.3.0; frühere Partien werden bewusst abgewiesen. Neue UI-Speicherslots tragen `_0_3_1`. Der aktuelle Forschungsstand steht in `docs/FORSCHUNG_UND_FORTSCHRITT.md`.
 - Prüfe bei neuen Zustandsfeldern Initialisierung, Serialisierung, Wiederherstellung und ältere Spielstände gemeinsam. Passe `SAVE_VERSION` und Migrationen an, wenn das Speicherformat dies erfordert. Die Prüfung der exakten Paket-/Versionsliste bleibt erhalten.
 - Verwechsle die sichtbare Spielversion in `project.godot` nicht mit dem Content-Kompatibilitätswert `SUPPORTED_GAME_VERSION` und den Manifestfeldern `game_version`. Diese Werte werden derzeit getrennt verwendet.
 - Folge dem bestehenden typisierten GDScript-Stil: Tabs zur Einrückung, `snake_case` für Funktionen und Variablen, `PascalCase` für Klassen und explizite Typen bei unklaren `Variant`-Werten. JSON bleibt gültig und ohne Kommentare.

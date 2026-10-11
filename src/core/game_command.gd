@@ -7,8 +7,8 @@ enum Kind {
 	CREATE_BLUEPRINT,
 	CONFIGURE_PRODUCTION,
 	SET_PRODUCTION_ENABLED,
-	PURCHASE_MATERIAL,
-	SELL_MATERIAL,
+	PURCHASE_MATERIAL, # Retired: preserve numeric command IDs.
+	SELL_MATERIAL, # Retired: storage staff handle surplus sales.
 	SET_PRICE,
 	STOP_SALE,
 	PLACE_ROOM,
@@ -22,6 +22,12 @@ enum Kind {
 	SUBMIT_CONTRACT,
 	CHOOSE_PROFESSION,
 	SET_WAGE_LEVEL,
+	ASSIGN_RESEARCH_TEAM,
+	CHANGE_FOCUS,
+	SUBMIT_PROTOTYPES,
+	SUBMIT_FINAL_PROJECT,
+	RESTART_MASTER_SALES,
+	CONTINUE_GAME,
 }
 
 var kind: Kind
@@ -31,12 +37,13 @@ func _init(command_kind: Kind, command_payload: Dictionary = {}) -> void:
 	kind = command_kind
 	payload = command_payload.duplicate(true)
 
-static func start_research(project_id: String) -> GameCommand:
-	return GameCommand.new(Kind.START_RESEARCH, {"project_id": project_id})
+static func start_research(project_id: String, team_id: int = 0) -> GameCommand:
+	return GameCommand.new(Kind.START_RESEARCH, {"project_id": project_id, "team_id":team_id})
 
-static func pause_research() -> GameCommand:
-	return GameCommand.new(Kind.PAUSE_RESEARCH)
+static func pause_research(team_id: int = 0) -> GameCommand:
+	return GameCommand.new(Kind.PAUSE_RESEARCH, {"team_id":team_id})
 
+## Material is derived from body_id; an explicit material_id must match.
 static func create_blueprint(data: Dictionary) -> GameCommand:
 	return GameCommand.new(Kind.CREATE_BLUEPRINT, data)
 
@@ -90,3 +97,21 @@ static func choose_profession(profession_id: String) -> GameCommand:
 
 static func set_wage_level(value: float) -> GameCommand:
 	return GameCommand.new(Kind.SET_WAGE_LEVEL, {"value":value})
+
+static func assign_research_team(station_id: String, team_id: int) -> GameCommand:
+	return GameCommand.new(Kind.ASSIGN_RESEARCH_TEAM, {"station_id":station_id, "team_id":team_id})
+
+static func change_focus(branch_id: String, team_id: int = 0) -> GameCommand:
+	return GameCommand.new(Kind.CHANGE_FOCUS, {"branch_id":branch_id, "team_id":team_id})
+
+static func submit_prototypes(project_id: String, selection: Array) -> GameCommand:
+	return GameCommand.new(Kind.SUBMIT_PROTOTYPES, {"project_id":project_id, "selection":selection})
+
+static func submit_final_project(project_id: String, selection: Array) -> GameCommand:
+	return GameCommand.new(Kind.SUBMIT_FINAL_PROJECT, {"project_id":project_id, "selection":selection})
+
+static func restart_master_sales() -> GameCommand:
+	return GameCommand.new(Kind.RESTART_MASTER_SALES)
+
+static func continue_game() -> GameCommand:
+	return GameCommand.new(Kind.CONTINUE_GAME)

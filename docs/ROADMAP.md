@@ -1,6 +1,8 @@
 # Ausbauplan für Artefakt Imperium
 
-**Stand:** 13. August 2026  
+**Stand:** 12. September 2026
+
+**Ausbau 0.3 umgesetzt:** sechs Schulen, 156 Forschungen, praktische Durchbrüche, zwei Forschungsteams, wechselbarer Schwerpunkt, Unternehmensstufen und drei fortsetzbare Siegpfade. Maßgeblicher Stand und Referenzläufe: [Forschung und Unternehmensfortschritt](FORSCHUNG_UND_FORTSCHRITT.md). Die nachfolgenden ursprünglichen Phasen bleiben eine Sammlung weiterer Ausbauziele; Grundstücke, Rohstoffquellen und Kundenansehen sind ebenfalls bereits vorhanden.
 **Planungsbasis:** vorhandener vertikaler Schnitt und die in `tycoon.txt` beschriebenen Systeme.
 
 ## Zielbild
@@ -18,14 +20,14 @@ Forschung, Markt und Konkurrenz bleiben wichtig, sollen diesen Loop aber unterst
 Der aktuelle Prototyp enthält bereits:
 
 - feste Stunden-Ticks, Pause und Geschwindigkeiten,
-- drei Forschungsdisziplinen mit je drei Stufen,
-- drei Hybridtechnologien und sichtbare Technologierennen,
+- sechs Forschungsdisziplinen mit je 20 Projekten bis Stufe 8 und zwölf allgemeinen Forschungen,
+- 21 Paarhybrid-Projekte, drei Konvergenzen und sichtbare Technologierennen,
 - modularen Artefaktbau aus Grundkörper, Effekt, Material und Modifikatoren,
 - gespeicherte Baupläne, stationsgebundene kontinuierliche Produktionslinien und Warenbestand,
-- offenen Markt und zwölf Aufträge,
-- drei Kundengruppen und zwei Konkurrenten,
+- offenen Markt, 36 reguläre Aufträge und separate Abschlussprojekte,
+- sechs Kundengruppen und zwei Konkurrenten,
 - Räume, Stationen und ein Werkstattraster,
-- sechs Spezialisten mit Fachgebiet, Werten, Lohn und Zuweisung,
+- 24 Spezialisten mit Fachgebiet, Werten, Lohn und Zuweisung,
 - Ereignisse, laufende Kosten, Kredit, Insolvenz sowie drei Siegpfade,
 - deterministische Simulation, Speicherstände, Modpakete und Headless-Tests.
 

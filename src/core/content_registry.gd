@@ -3,7 +3,7 @@ extends RefCounted
 
 const Schema = preload("res://src/core/data_schema.gd")
 
-const SUPPORTED_GAME_VERSION := "0.1.0"
+const SUPPORTED_GAME_VERSION := "0.3.0"
 const CONTENT_KEYS: PackedStringArray = [
 	"disciplines", "goods_classes", "research", "bodies", "effects", "modifiers", "materials",
 	"customers", "rivals", "rooms", "stations", "staff", "contracts",
@@ -183,6 +183,8 @@ func _validate_references() -> void:
 				errors.append("%s references unknown profession %s." % [effect.id, profession])
 	for goods_class: Dictionary in all("goods_classes"):
 		_validate_id(goods_class, "profession", "disciplines")
+	for body: Dictionary in all("bodies"):
+		_validate_id(body, "base_material_id", "materials")
 	for component_category: String in ["bodies", "effects", "modifiers", "materials"]:
 		for component: Dictionary in all(component_category):
 			for class_id: Variant in component.get("goods_classes", []):
@@ -273,6 +275,7 @@ func _validate_references() -> void:
 			errors.append("%s references unknown material %s." % [event.get("id", "?"), event_material])
 		if not event_tag.is_empty() and not material_tags.has(event_tag):
 			errors.append("%s references unknown material tag %s." % [event.get("id", "?"), event_tag])
+	_validate_research_expansion()
 	for scenario: Dictionary in all("scenarios"):
 		var victory: Dictionary = scenario.get("victory", {})
 		var hybrid_contract := str(victory.get("hybrid_contract", ""))
@@ -286,7 +289,7 @@ func _validate_id(owner: Dictionary, field: String, category: String) -> void:
 
 func _entry_schema(category: String) -> Dictionary:
 	var fields: Dictionary = {}
-	for key: String in ["id", "name_de", "name_en", "color", "discipline", "profession", "focus", "room_type", "material", "customer", "specialty", "material_tag", "hint_de", "hint_en", "description_de", "description_en"]:
+	for key: String in ["base_material_id", "id", "name_de", "name_en", "color", "discipline", "profession", "focus", "room_type", "material", "customer", "specialty", "material_tag", "hint_de", "hint_en", "description_de", "description_en"]:
 		fields[key] = "string"
 	for key: String in ["general", "hybrid", "housing", "unlocked", "repeatable", "victory_contract"]:
 		fields[key] = "bool"
@@ -312,9 +315,31 @@ func _entry_schema(category: String) -> Dictionary:
 	fields["start_stations"] = Schema.array(Schema.object({"id":"string", "type":"string", "position":Schema.array(Schema.integer(), 2)}, ["id", "type", "position"]))
 	fields["sources"] = Schema.array(Schema.object({"id":"string", "type":"string", "material":"string", "position":Schema.array(Schema.integer(), 2), "quality_bonus":"number", "yield_multiplier":Schema.number(0.000001), "regen_multiplier":Schema.number(0.0)}, ["type", "position"]))
 	fields["victory"] = Schema.object({"technology_tier":Schema.integer(1), "economic_cash":Schema.number(0.0), "economic_revenue_30d":Schema.number(0.0), "economic_share":Schema.number(0.0, 1.0), "hybrid_contract":"string"})
+	fields["track"] = {"type":"string", "enum":["core", "branch", "general", "hybrid"]}
+	for key: String in ["branch", "branch_name_de", "branch_name_en", "family_effect", "family_id"]:
+		fields[key] = "string"
+	for key: String in ["capstone", "convergence", "advanced_hybrid"]:
+		fields[key] = "bool"
+	fields["min_company_level"] = Schema.integer(1, 4)
+	fields["quality_bonus"] = Schema.number(0.0, 30.0)
+	fields["hybrid_coverage"] = Schema.array("string")
+	fields["research_path"] = Schema.array("string")
+	fields["benefits"] = Schema.map(Schema.number(0.0, 20.0))
+	fields["proofs"] = Schema.array(Schema.object({"quantity":Schema.integer(1, 1000), "min_quality":Schema.number(0, 100), "required_coverage":Schema.array("string"), "accepted_classes":Schema.array("string"), "family_effect":"string", "min_stats":Schema.map(Schema.number(0, 1000))}, ["quantity", "min_quality", "required_coverage", "accepted_classes"]))
+	fields["focus"] = "string" if category != "scenarios" else Schema.object({"cost":Schema.number(0), "work":Schema.number(0.0001), "bonus":Schema.number(0, 1)}, ["cost", "work", "bonus"])
+	fields["company_levels"] = Schema.array(Schema.object({"level":Schema.integer(1, 5), "name_de":"string", "name_en":"string", "research":Schema.integer(), "sales":Schema.integer(), "contracts":Schema.integer(), "breakthroughs":Schema.integer(), "foundations":Schema.integer(), "max_tier":Schema.integer(1, 8), "victory_required":"bool"}, ["level", "name_de", "name_en", "research", "sales", "contracts", "breakthroughs", "foundations", "max_tier"]))
+	var victory_fields := {}
+	for key: String in ["master_quantity", "master_sales", "master_days", "merchant_days", "merchant_customers", "merchant_units", "researcher_demo_quantity", "researcher_order_quantity"]:
+		victory_fields[key] = Schema.integer(1)
+	for key: String in ["master_quality", "researcher_demo_quality", "researcher_order_quality"]:
+		victory_fields[key] = Schema.number(0, 100)
+	for key: String in ["merchant_revenue", "merchant_net_cash"]:
+		victory_fields[key] = Schema.number(0)
+	fields["victory"] = Schema.object(victory_fields, victory_fields.keys())
 	var required: Array = ["id", "name_de", "name_en"]
 	var category_required := {
-		"goods_classes":["profession"], "effects":["discipline"], "rivals":["focus"],
+		"bodies":["base_material_id"], "goods_classes":["profession"], "effects":["discipline"], "rivals":["focus", "research_path"],
+		"research":["tier", "cost_hours", "hourly_cost", "requires", "unlocks"], "scenarios":["company_levels", "focus", "victory"],
 		"stations":["room_type", "kind"], "resource_sources":["material", "max_reserve", "daily_regen", "base_yield"],
 		"properties":["grid_size", "construction_multiplier", "hiring_multiplier", "market_multiplier", "procurement_multiplier"],
 		"contracts":["customer", "quantity", "min_quality", "reward", "prestige", "deadline_days", "eligible_professions", "accepted_classes", "required_coverage", "tier", "min_faction_reputation", "faction_reputation_reward"]
@@ -336,3 +361,108 @@ func _read_json(path: String) -> Variant:
 		errors.append("JSON-Fehler in %s, Zeile %d: %s" % [path, json.get_error_line(), json.get_error_message()])
 		return null
 	return json.data
+
+func _validate_research_expansion() -> void:
+	var reachable: Dictionary = {}
+	var changed := true
+	while changed:
+		changed = false
+		for project: Dictionary in all("research"):
+			if reachable.has(str(project.id)):
+				continue
+			var ready := true
+			for id: String in project.get("requires", []):
+				ready = ready and reachable.has(id)
+			var alternatives: Array = project.get("requires_any", [])
+			if not alternatives.is_empty():
+				ready = ready and alternatives.any(func(id: String) -> bool: return reachable.has(id))
+			if ready:
+				reachable[str(project.id)] = true
+				changed = true
+	var combinations: Dictionary = {}
+	for project: Dictionary in all("research"):
+		if not reachable.has(str(project.id)):
+			errors.append(str(project.id) + ": Forschungszyklus oder unerreichbare Voraussetzung.")
+		if int(project.tier) > 8:
+			errors.append(str(project.id) + ": Forschungsstufe über 8.")
+		if str(project.get("track", "")) == "branch" and (str(project.get("branch", "")).is_empty() or str(project.get("branch_name_de", "")).is_empty() or str(project.get("branch_name_en", "")).is_empty()):
+			errors.append(str(project.id) + ": Fachrichtung oder Übersetzung fehlt.")
+		for benefit: String in project.get("benefits", {}):
+			if benefit not in ["research_rate", "ramp_reduction", "second_team", "quality_bonus", "production_rate", "construction_discount", "market_score", "merchant_path"]:
+				errors.append(str(project.id) + ": Unbekannter Forschungsvorteil " + benefit)
+		var coverage: Array = project.get("hybrid_coverage", [])
+		if not coverage.is_empty():
+			var canonical := coverage.duplicate()
+			canonical.sort()
+			var key := "|".join(canonical)
+			if coverage.size() < 2 or coverage.size() > 3 or combinations.has(key):
+				errors.append(str(project.id) + ": Ungültige oder doppelte Hybridverbindung.")
+			combinations[key] = true
+			var seen: Dictionary = {}
+			for id: String in coverage:
+				if not has_def("disciplines", id) or seen.has(id):
+					errors.append(str(project.id) + ": Ungültige Hybridschule " + id)
+				seen[id] = true
+		var ancestors: Dictionary = {}
+		_collect_research_ancestors(str(project.id), ancestors)
+		var available: Dictionary = {}
+		for category: String in ["bodies", "effects", "modifiers"]:
+			for definition: Dictionary in all(category):
+				if bool(definition.get("unlocked", false)):
+					available[str(definition.id)] = true
+		for id: String in ancestors:
+			for unlock: String in get_def("research", id).get("unlocks", []):
+				available[unlock] = true
+		for proof: Dictionary in project.get("proofs", []):
+			for id: String in proof.get("required_coverage", []):
+				if not has_def("disciplines", id):
+					errors.append(str(project.id) + ": Unbekannte Nachweisschule " + id)
+			for id: String in proof.get("accepted_classes", []):
+				if not has_def("goods_classes", id):
+					errors.append(str(project.id) + ": Unbekannte Nachweisklasse " + id)
+			var class_reachable: bool = (proof.get("accepted_classes", []) as Array).is_empty()
+			var coverage_reachable: Dictionary = {}
+			for category: String in ["effects", "bodies", "modifiers"]:
+				for component: Dictionary in all(category):
+					if not available.has(str(component.id)):
+						continue
+					for id: String in component.get("goods_classes", []):
+						class_reachable = class_reachable or (proof.get("accepted_classes", []) as Array).has(id)
+					if category == "effects":
+						for id: String in component.get("profession_coverage", [component.discipline]):
+							coverage_reachable[id] = true
+			if not class_reachable:
+				errors.append(str(project.id) + ": Nachweisklasse vor Durchbruch nicht verfügbar.")
+			for id: String in proof.get("required_coverage", []):
+				if not coverage_reachable.has(id):
+					errors.append(str(project.id) + ": Nachweis benötigt erst später freigeschaltete Schule.")
+			var family := str(proof.get("family_effect", ""))
+			if not family.is_empty() and not available.has(family):
+				errors.append(str(project.id) + ": Nachweiseffekt noch nicht verfügbar.")
+		if bool(project.get("capstone", false)) or bool(project.get("convergence", false)):
+			var family := str(project.get("family_effect", ""))
+			if not has_def("effects", family) or not (project.unlocks as Array).has(family):
+				errors.append(str(project.id) + ": Abschluss benötigt eigenen freigeschalteten Effekt.")
+	for rival: Dictionary in all("rivals"):
+		var known: Dictionary = {}
+		for id: String in rival.get("research_path", []):
+			if not has_def("research", id) or known.has(id):
+				errors.append(str(rival.id) + ": Ungültiger Forschungspfad.")
+			for required: String in get_def("research", id).get("requires", []):
+				if not known.has(required):
+					errors.append(str(rival.id) + ": Forschungspfad verletzt Voraussetzungen.")
+			known[id] = true
+	for scenario: Dictionary in all("scenarios"):
+		var levels: Array = scenario.get("company_levels", [])
+		if levels.size() != 5:
+			errors.append(str(scenario.id) + ": Fünf Unternehmensstufen erforderlich.")
+		for index: int in levels.size():
+			if int(levels[index].level) != index + 1:
+				errors.append(str(scenario.id) + ": Unternehmensstufen nicht geordnet.")
+
+func _collect_research_ancestors(id: String, found: Dictionary) -> void:
+	var project := get_def("research", id)
+	for predecessor: String in (project.get("requires", []) as Array) + (project.get("requires_any", []) as Array):
+		if not found.has(predecessor) and has_def("research", predecessor):
+			found[predecessor] = true
+			_collect_research_ancestors(predecessor, found)

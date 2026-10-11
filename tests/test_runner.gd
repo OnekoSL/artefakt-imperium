@@ -9,21 +9,22 @@ func _run_tests() -> void:
 	print("Artefakt Imperium – headless tests")
 	var registry := ContentRegistry.new()
 	_check(registry.load_all(false), "base content validates: %s" % " | ".join(registry.errors))
-	_check(registry.all("disciplines").size() == 3, "three disciplines load")
-	_check(registry.all("customers").size() == 3, "three customer segments load")
+	_check(registry.all("disciplines").size() == 6, "six disciplines load")
+	_check(registry.all("customers").size() == 6, "six customer segments load")
 	_check(registry.all("rivals").size() == 2, "two rivals load")
 	_check(registry.all("contracts").size() >= 12, "at least twelve contracts load")
-	_check(registry.all("goods_classes").size() == 18, "six systematic goods classes load for each of the three professions")
+	_check(registry.all("goods_classes").size() == 36, "six systematic goods classes load for each of the six professions")
 	_check((registry.get_def("contracts", "base:apprentice_charms").accepted_classes as Array).has("base:rune_utility"), "apprentice talisman contract accepts runic utility goods")
 	_check(registry.has_def("effects", "base:unified_convergence") and registry.has_def("research", "base:convergent_mastery"), "late triple-profession convergence content loads")
 	_check(registry.all("properties").size() == 3, "three property definitions load")
 	_check(registry.all("resource_sources").size() == 4, "four resource source definitions load")
 	_check(registry.all("staff").size() >= 12, "expanded recruiting pool loads")
-	_check(registry.all("research").filter(func(item: Dictionary) -> bool: return bool(item.get("hybrid", false))).size() == 4, "three pair hybrids and one triple convergence technology load")
+	_check(registry.all("research").filter(func(item: Dictionary) -> bool: return bool(item.get("hybrid", false))).size() == 24, "twenty-one pair projects and three convergences load")
 	var mod_registry := ContentRegistry.new()
 	_check(mod_registry.load_all(true), "base and example mod validate together")
 	_check(mod_registry.has_def("materials", "example:star_iron"), "example mod content is registered")
 
+	_test_fixed_materials(registry)
 	var first := GameSimulation.new(registry)
 	var second := GameSimulation.new(registry)
 	first.new_game("base:first_sparks", 123456)
@@ -57,7 +58,7 @@ func _run_tests() -> void:
 	var wage_sim := GameSimulation.new(registry)
 	wage_sim.new_game("base:first_sparks", 5151, "base:outskirts")
 	_check(is_equal_approx(wage_sim.base_daily_wages(), 130.0) and is_equal_approx(wage_sim.daily_wages(), 130.0), "rebalanced starting staff costs exactly 130 gold per day at full wages")
-	_check(float(registry.get_def("research", "base:arcane_foundations").hourly_cost) == 1.0 and float(registry.get_def("research", "base:arcane_resonance").hourly_cost) == 2.0 and float(registry.get_def("research", "base:arcane_mastery").hourly_cost) == 4.0 and float(registry.get_def("research", "base:crystal_hex").hourly_cost) == 3.0 and float(registry.get_def("research", "base:convergent_mastery").hourly_cost) == 5.0, "research tiers and hybrid projects use the rebalanced hourly costs")
+	_check(float(registry.get_def("research", "base:arcane_foundations").hourly_cost) == 1.0 and float(registry.get_def("research", "base:arcane_resonance").hourly_cost) == 2.0 and float(registry.get_def("research", "base:arcane_mastery").hourly_cost) == 3.0 and float(registry.get_def("research", "base:crystal_hex").hourly_cost) == 3.0 and float(registry.get_def("research", "base:convergent_mastery").hourly_cost) == 5.0, "research tiers and hybrid projects use the rebalanced hourly costs")
 	_check(not bool(wage_sim.execute(GameCommand.set_wage_level(0.75)).ok) and not bool(wage_sim.execute(GameCommand.set_wage_level(0.82)).ok) and not bool(wage_sim.execute(GameCommand.set_wage_level(1.25)).ok), "wage level rejects values outside 80 to 120 percent and values between five-percent steps")
 	wage_sim.execute(GameCommand.start_research("base:arcane_foundations"))
 	wage_sim.execute(GameCommand.set_wage_level(1.20))
@@ -75,8 +76,9 @@ func _run_tests() -> void:
 	var wage_line: Dictionary = wage_sim.state.production_lines["station_2"]
 	_check(is_equal_approx(float(wage_sim.production_line_status("station_2").rate), 1.04) and is_equal_approx(float(wage_line.quality_work) / float(wage_line.progress), 0.84), "eighty-percent wages scale production speed and weighted worker quality directly")
 	wage_sim.execute(GameCommand.assign_staff("base:torben", "station_3"))
+	var water_before_wage_harvest := int(wage_sim.state.inventory["base:spring_water"].quantity)
 	wage_sim._tick_sources()
-	_check(int((wage_sim.state.inventory["base:spring_water"] as Dictionary).quantity) == 1, "eighty-percent wages scale storage logistics before harvesting")
+	_check(int((wage_sim.state.inventory["base:spring_water"] as Dictionary).quantity) == water_before_wage_harvest + 1, "eighty-percent wages scale storage logistics before harvesting")
 	var high_wage_sim := GameSimulation.new(registry)
 	high_wage_sim.new_game("base:first_sparks", 5252, "base:outskirts")
 	high_wage_sim.execute(GameCommand.set_wage_level(1.20))
@@ -101,8 +103,8 @@ func _run_tests() -> void:
 	_check((witch_foundations.unlocks as Array).has("base:ritual_circle"), "ritual research unlocks the ritual circle")
 	_check((rune_foundations.unlocks as Array).has("base:rune_press"), "rune research unlocks the rune press")
 	var initial_visible := simulation.visible_research()
-	_check(initial_visible.size() == 3, "only the three immediately researchable foundations are initially visible")
-	_check(initial_visible.all(func(project: Dictionary) -> bool: return (project.get("requires", []) as Array).is_empty()), "initial research list contains no locked projects")
+	_check(initial_visible.size() == 156, "all 156 projects are visible for long-term planning")
+	_check(simulation.available_research().size() == 6, "exactly six foundations are initially available")
 	var start_result := simulation.execute(GameCommand.start_research("base:arcane_foundations"))
 	_check(bool(start_result.ok), "research can start")
 	for _hour: int in 120:
@@ -114,12 +116,12 @@ func _run_tests() -> void:
 	_check(progressed_visible.any(func(project: Dictionary) -> bool: return str(project.id) == "base:arcane_foundations"), "completed research remains visible")
 	_check(progressed_visible.any(func(project: Dictionary) -> bool: return str(project.id) == "base:arcane_resonance"), "newly researchable project becomes visible")
 	_check(progressed_visible.any(func(project: Dictionary) -> bool: return str(project.id) == "base:complex_blueprints"), "neutral complex-blueprint research becomes visible after any foundation")
-	_check(not progressed_visible.any(func(project: Dictionary) -> bool: return str(project.id) == "base:arcane_mastery"), "locked follow-up research remains hidden")
+	_check(progressed_visible.any(func(project: Dictionary) -> bool: return str(project.id) == "base:arcane_mastery"), "locked follow-up research stays visible")
 	_check(is_equal_approx(simulation.research_rate("base:complex_blueprints", false), 2.5), "general complex-blueprint research receives neither specialty nor property bonuses")
 
 	var recipe_sim := GameSimulation.new(registry)
 	recipe_sim.new_game("base:first_sparks", 7878, "base:outskirts")
-	var locked_complex := recipe_sim.preview_blueprint({"name":"Locked", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "secondary_effect_id":"base:warding_rune", "modifier_ids":[], "material_id":"base:copper", "secondary_material_id":"base:silver"})
+	var locked_complex := recipe_sim.preview_blueprint({"name":"Locked", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "secondary_effect_id":"base:warding_rune", "modifier_ids":[], "material_id":"base:copper"})
 	_check(not bool(locked_complex.valid), "secondary effects and materials remain locked before Complex Blueprints research")
 	for unlock_id: String in ["base:complex_blueprints", "base:rune_foundations", "base:arcane_foundations", "base:witch_foundations", "base:arcane_resonance", "base:witch_transformations"]:
 		(recipe_sim.state.unlocked as Dictionary)[unlock_id] = true
@@ -170,15 +172,14 @@ func _run_tests() -> void:
 	var locked_triple := recipe_sim.preview_blueprint({"name":"Locked Triple", "body_id":"base:simple_charm", "effect_id":"base:ritual_storage", "secondary_effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper"})
 	_check(not bool(locked_triple.valid) and str(locked_triple.message).contains("Konvergente Meisterschaft"), "three-profession effect coverage remains locked behind convergence research")
 	var refined_mix := recipe_sim.preview_blueprint({"name":"Refined", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper", "secondary_material_id":"base:silver"})
-	_check(bool(refined_mix.valid) and (refined_mix.material_requirements as Array).size() == 2 and int((refined_mix.material_requirements[0] as Dictionary).quantity) == 2 and int((refined_mix.material_requirements[1] as Dictionary).quantity) == 1 and is_equal_approx(float(refined_mix.material_quality_estimate), (0.55 * 2.0 + 0.72) / 3.0) and is_equal_approx(float((refined_mix.stats as Dictionary).prestige) - float((modifier_base.stats as Dictionary).prestige), 2.5), "additional material uses a two-to-one recipe, weighted quality, and fifty-percent stats")
-	_check(not bool(recipe_sim.preview_blueprint({"name":"Duplicate Material", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper", "secondary_material_id":"base:copper"}).valid), "primary and additional material must differ")
+	_check(not bool(refined_mix.valid), "additional material is rejected even after Complex Blueprints research")
+	_check(not bool(recipe_sim.preview_blueprint({"name":"Duplicate Material", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper", "secondary_material_id":"base:copper"}).valid), "additional material is never accepted")
 
 	var blueprint_data := {
 		"name":"Test Focus",
 		"body_id":"base:focus_rod",
 		"effect_id":"base:mana_focus",
-		"modifier_ids":["base:precision"],
-		"material_id":"base:copper"
+		"modifier_ids":["base:precision"]
 	}
 	var preview := simulation.preview_blueprint(blueprint_data)
 	_check(bool(preview.valid) and float(preview.stats.power) > 0, "blueprint preview derives stats")
@@ -219,6 +220,7 @@ func _run_tests() -> void:
 	var accept_contract_result := simulation.execute(GameCommand.accept_contract(offered_contract_id))
 	_check(bool(accept_contract_result.ok) and int((simulation.state.active_contracts[offered_contract_id] as Dictionary).deadline_day) == offered_deadline, "accepting an offer preserves its original deadline")
 	_check(simulation.contract_days_remaining(simulation.state.active_contracts[offered_contract_id]) == int(offered_contract.deadline_days), "contract deadlines expose a relative remaining duration")
+	simulation.execute(GameCommand.set_production_enabled("station_2", false))
 	var quantity_before_stop := int(((simulation.state.products as Dictionary).get(blueprint_id, {}) as Dictionary).get("quantity", 0))
 	var stop_result := simulation.execute(GameCommand.stop_sale(blueprint_id))
 	_check(bool(stop_result.ok) and not (simulation.state.listings as Dictionary).has(blueprint_id), "an active market sale can be stopped")
@@ -253,63 +255,12 @@ func _run_tests() -> void:
 	_check(int(restored.state.hour) == int(simulation.state.hour), "restored clock matches")
 	_check(restored.rng_quality.state == simulation.rng_quality.state, "restored RNG state matches")
 	_check((restored.state.logbook as Array).size() == (simulation.state.logbook as Array).size(), "logbook survives a save-state roundtrip")
-	var version_six_save := saved.duplicate(true)
-	version_six_save.save_version = 6
-	version_six_save.erase("wage_level")
-	version_six_save.erase("pending_wage_level")
-	version_six_save.erase("research_cost_today")
-	version_six_save.active_contracts = {"base:mage_focus":registry.get_def("contracts", "base:mage_focus").duplicate(true)}
-	var wage_migrated := GameSimulation.new(registry)
-	_check(bool(wage_migrated.restore(version_six_save).ok) and is_equal_approx(wage_migrated.wage_performance_multiplier(), 1.0) and is_equal_approx(float(wage_migrated.state.pending_wage_level), 1.0), "version-six saves migrate to one-hundred-percent active and scheduled wages")
-	_check((wage_migrated.state.active_contracts as Dictionary).has("base:mage_focus"), "wage migration preserves version-six active contracts")
-	var version_seven_save := saved.duplicate(true)
-	version_seven_save.save_version = 7
-	var legacy_complex_blueprint: Dictionary = (version_seven_save.blueprints as Dictionary)[blueprint_id]
-	legacy_complex_blueprint.erase("secondary_effect_id")
-	legacy_complex_blueprint.erase("secondary_material_id")
-	legacy_complex_blueprint.computed.erase("material_requirements")
-	(version_seven_save.blueprints as Dictionary)[blueprint_id] = legacy_complex_blueprint
-	version_seven_save.production_lines = {"station_2":{"blueprint_id":blueprint_id, "enabled":false, "progress":3.25, "quality_work":2.75, "material_reserved":true, "material_id":"base:copper", "material_quantity":1, "material_quality":0.61}}
-	var complex_migrated := GameSimulation.new(registry)
-	var complex_restore := complex_migrated.restore(version_seven_save)
-	var migrated_complex_blueprint: Dictionary = (complex_migrated.state.blueprints as Dictionary).get(blueprint_id, {})
-	var migrated_complex_line: Dictionary = (complex_migrated.state.production_lines as Dictionary).get("station_2", {})
-	var migrated_reserved: Array = migrated_complex_line.get("reserved_materials", [])
-	_check(bool(complex_restore.ok) and str(migrated_complex_blueprint.get("secondary_effect_id", "missing")).is_empty() and str(migrated_complex_blueprint.get("secondary_material_id", "missing")).is_empty(), "version-seven blueprints migrate with empty optional recipe slots")
-	_check((migrated_complex_blueprint.get("computed", {}) as Dictionary).has("material_requirements"), "version-seven blueprint calculations are rebuilt for multi-material production")
-	_check(is_equal_approx(float(migrated_complex_line.get("progress", 0.0)), 3.25) and is_equal_approx(float(migrated_complex_line.get("quality_work", 0.0)), 2.75), "version-seven production migration preserves work progress")
-	_check(migrated_reserved.size() == 1 and str((migrated_reserved[0] as Dictionary).material_id) == "base:copper" and int((migrated_reserved[0] as Dictionary).quantity) == 1 and is_equal_approx(float((migrated_reserved[0] as Dictionary).quality), 0.61), "version-seven reserved material migrates without quantity or quality loss")
-	var old_timing_save := saved.duplicate(true)
-	old_timing_save.save_version = 3
-	old_timing_save.erase("production_lines")
-	old_timing_save.erase("production_today")
-	var copper_before_migration := int((old_timing_save.inventory["base:copper"] as Dictionary).quantity)
-	old_timing_save.production_queue = [{"blueprint_id":blueprint_id, "quantity":10, "progress":80.0, "total_hours":100.0, "material_quality":0.6}]
-	var timing_migrated := GameSimulation.new(registry)
-	var timing_restore := timing_migrated.restore(old_timing_save)
-	_check(bool(timing_restore.ok) and not timing_migrated.state.has("production_queue") and (timing_migrated.state.production_lines as Dictionary).is_empty(), "legacy production queues migrate to stopped station lines: %s" % timing_restore)
-	_check(int((timing_migrated.state.inventory["base:copper"] as Dictionary).quantity) == copper_before_migration + 20, "legacy queue migration refunds every reserved material unit")
-	var legacy_save := saved.duplicate(true)
-	(legacy_save.unlocked as Dictionary)["base:witch_foundations"] = true
-	(legacy_save.unlocked as Dictionary).erase("base:ritual_circle")
-	var reconciled := GameSimulation.new(registry)
-	var reconcile_result := reconciled.restore(legacy_save)
-	_check(bool(reconcile_result.ok) and bool((reconciled.state.unlocked as Dictionary).get("base:ritual_circle", false)), "loading reconciles new unlocks for completed legacy research")
-	var profession_legacy_save := saved.duplicate(true)
-	profession_legacy_save.save_version = 5
-	profession_legacy_save.erase("player_profession")
-	profession_legacy_save.erase("profession_choice_required")
-	profession_legacy_save.erase("faction_reputation")
-	(profession_legacy_save.unlocked as Dictionary)["base:arcane_foundations"] = true
-	(profession_legacy_save.unlocked as Dictionary)["base:witch_foundations"] = true
-	profession_legacy_save.active_contracts = {"base:mage_focus":registry.get_def("contracts", "base:mage_focus").duplicate(true)}
-	profession_legacy_save.available_contracts = {"base:coven_gifts":registry.get_def("contracts", "base:coven_gifts").duplicate(true)}
-	var profession_legacy := GameSimulation.new(registry)
-	_check(bool(profession_legacy.restore(profession_legacy_save).ok) and bool(profession_legacy.state.profession_choice_required), "ambiguous legacy foundations request a one-time profession choice")
-	_check((profession_legacy.state.active_contracts as Dictionary).is_empty() and (profession_legacy.state.available_contracts as Dictionary).is_empty(), "legacy active and offered contracts are removed without penalties")
-	_check(bool(profession_legacy.execute(GameCommand.choose_profession("base:witchcraft")).ok) and str(profession_legacy.state.player_profession) == "base:witchcraft" and not bool(profession_legacy.state.profession_choice_required), "legacy profession choice is restricted to completed foundations and becomes permanent")
-	var migrated_blueprint: Dictionary = (profession_legacy.state.blueprints as Dictionary)[blueprint_id]
-	_check((migrated_blueprint.computed as Dictionary).has("goods_classes") and (migrated_blueprint.computed as Dictionary).has("profession_coverage"), "legacy blueprints are reclassified from their saved components")
+	for old_version: int in range(1, 10):
+		var legacy := saved.duplicate(true)
+		legacy.save_version = old_version
+		var before := JSON.stringify(restored.serialize())
+		var result := restored.restore(legacy)
+		_check(not bool(result.ok) and str(result.code) == "incompatible_version" and JSON.stringify(restored.serialize()) == before, "pre-expansion version %d is rejected without mutating the running game" % old_version)
 	var file_save := SaveSystem.save_game(simulation, "automated_test")
 	_check(bool(file_save.ok), "save file is written atomically")
 	var disk_restored := GameSimulation.new(registry)
@@ -318,7 +269,7 @@ func _run_tests() -> void:
 	_check(bool(file_load.ok) and int(disk_restored.state.hour) == int(simulation.state.hour), "save file loads from disk")
 	var assign_result := simulation.execute(GameCommand.assign_staff("base:torben", "station_1"))
 	_check(bool(assign_result.ok), "staff can be assigned to a concrete station")
-	_check(str((simulation.state.staff[0] as Dictionary).station_id).is_empty(), "assigning to an occupied station makes the former occupant available")
+	_check(str((simulation.state.staff[0] as Dictionary).station_id) == "station_3", "assigning to an occupied station swaps the former occupant into storage")
 	_check(str((simulation.state.staff[1] as Dictionary).station_id) == "station_1", "new occupant owns the selected station")
 
 	simulation.state.cash = 10000.0
@@ -390,7 +341,7 @@ func _run_tests() -> void:
 	for unlock_id: String in ["base:arcane_foundations", "base:arcane_resonance", "base:witch_foundations", "base:rune_foundations", "base:crystal_hex", "base:runic_manufactory", "base:bound_covenant", "base:convergent_mastery"]:
 		(classification_sim.state.unlocked as Dictionary)[unlock_id] = true
 	classification_sim._reconcile_unlocks()
-	var ordinary_cross := classification_sim.preview_blueprint({"name":"Ordinary Cross", "body_id":"base:focus_rod", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper"})
+	var ordinary_cross := classification_sim.preview_blueprint({"name":"Ordinary Cross", "body_id":"base:focus_rod", "effect_id":"base:minor_light", "modifier_ids":[]})
 	var pair_hybrid := classification_sim.preview_blueprint({"name":"Pair Hybrid", "body_id":"base:simple_charm", "effect_id":"base:ritual_storage", "modifier_ids":[], "material_id":"base:copper"})
 	var triple_hybrid := classification_sim.preview_blueprint({"name":"Triple Hybrid", "body_id":"base:simple_charm", "effect_id":"base:unified_convergence", "modifier_ids":[], "material_id":"base:copper"})
 	_check((ordinary_cross.profession_coverage as Array) == ["base:runes"], "ordinary cross-discipline components keep the primary effect's single profession")
@@ -455,7 +406,7 @@ func _run_tests() -> void:
 	var copper_before_switch := int((line_sim.state.inventory["base:copper"] as Dictionary).quantity)
 	var second_line_data := line_blueprint_data.duplicate(true)
 	second_line_data.name = "Line Switch"
-	second_line_data.material_id = "base:iron"
+	second_line_data.modifier_ids = ["base:balanced"]
 	var second_line_id := str(line_sim.execute(GameCommand.create_blueprint(second_line_data)).blueprint_id)
 	line_sim.execute(GameCommand.configure_production("station_2", second_line_id))
 	_check(int((line_sim.state.inventory["base:copper"] as Dictionary).quantity) == copper_before_switch + 2 and is_zero_approx(float((line_sim.state.production_lines["station_2"] as Dictionary).progress)), "switching a paused line refunds reserved material and resets progress")
@@ -476,6 +427,7 @@ func _run_tests() -> void:
 	_check(float((high_quality_sim.state.products[high_quality_id] as Dictionary).average_quality) > float((normal_quality_sim.state.products[normal_quality_id] as Dictionary).average_quality), "worker quality changes deterministic per-unit product quality independently of speed")
 	var supply_sim := GameSimulation.new(registry)
 	supply_sim.new_game("base:first_sparks", 444, "base:outskirts")
+	supply_sim.execute(GameCommand.assign_staff("base:torben", ""))
 	var supply_id := str(supply_sim.execute(GameCommand.create_blueprint(line_blueprint_data)).blueprint_id)
 	(supply_sim.state.inventory["base:copper"] as Dictionary).quantity = 0
 	supply_sim.execute(GameCommand.configure_production("station_2", supply_id))
@@ -486,33 +438,7 @@ func _run_tests() -> void:
 	supply_sim.execute(GameCommand.assign_staff("base:torben", "station_3"))
 	supply_sim.tick()
 	_check(float((supply_sim.state.production_lines["station_2"] as Dictionary).progress) > 0.0 and float(supply_sim.state.cash) < supply_cash, "a storage worker enables just-in-time automatic procurement")
-	var multi_material_sim := GameSimulation.new(registry)
-	multi_material_sim.new_game("base:first_sparks", 4545, "base:outskirts")
-	(multi_material_sim.state.unlocked as Dictionary)["base:complex_blueprints"] = true
-	var multi_id := str(multi_material_sim.execute(GameCommand.create_blueprint({"name":"Copper Silver Mix", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper", "secondary_material_id":"base:silver"})).blueprint_id)
-	var plain_id := str(multi_material_sim.execute(GameCommand.create_blueprint({"name":"Plain Copper", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "modifier_ids":[], "material_id":"base:copper"})).blueprint_id)
-	(multi_material_sim.state.inventory["base:copper"] as Dictionary).quantity = 2
-	(multi_material_sim.state.inventory["base:silver"] as Dictionary).quantity = 0
-	multi_material_sim.execute(GameCommand.configure_production("station_2", multi_id))
-	multi_material_sim.execute(GameCommand.set_production_enabled("station_2", true))
-	multi_material_sim.tick()
-	_check(str(multi_material_sim.production_line_status("station_2").status) == "no_material" and int((multi_material_sim.state.inventory["base:copper"] as Dictionary).quantity) == 2, "multi-material reservation removes nothing when one material is missing without a storage worker")
-	multi_material_sim.execute(GameCommand.assign_staff("base:torben", "station_3"))
-	multi_material_sim.state.cash = 0.0
-	multi_material_sim.tick()
-	_check(str(multi_material_sim.production_line_status("station_2").status) == "no_cash" and int((multi_material_sim.state.inventory["base:copper"] as Dictionary).quantity) == 2, "multi-material reservation remains atomic when automatic procurement lacks gold")
-	multi_material_sim.state.cash = 1000.0
-	multi_material_sim.tick()
-	var multi_line: Dictionary = multi_material_sim.state.production_lines["station_2"]
-	_check(bool(multi_line.material_reserved) and (multi_line.reserved_materials as Array).size() == 2 and int((multi_material_sim.state.inventory["base:copper"] as Dictionary).quantity) == 0 and int((multi_material_sim.state.inventory["base:silver"] as Dictionary).quantity) == 0 and is_equal_approx(float(multi_material_sim.state.cash), 963.2), "storage staff procure all missing recipe materials and reserve the complete two-to-one mix atomically")
-	multi_material_sim.execute(GameCommand.set_production_enabled("station_2", false))
-	multi_material_sim.execute(GameCommand.configure_production("station_2", plain_id))
-	_check(int((multi_material_sim.state.inventory["base:copper"] as Dictionary).quantity) == 2 and int((multi_material_sim.state.inventory["base:silver"] as Dictionary).quantity) == 1 and (multi_material_sim.state.production_lines["station_2"].reserved_materials as Array).is_empty(), "switching a paused complex line refunds every reserved material with no loss")
-	for procurement_sim: GameSimulation in [outskirts, forest]:
-		procurement_sim.state.cash = 1000.0
-		(procurement_sim.state.inventory["base:copper"] as Dictionary).quantity = 0
-		procurement_sim.execute(GameCommand.purchase_material("base:copper", 2))
-	_check(is_equal_approx(float(outskirts.state.cash), 992.8) and is_equal_approx(float(forest.state.cash), 990.4), "property procurement multipliers change missing-material cost")
+	_check(is_equal_approx(outskirts.material_buy_price("base:copper") * 2, 7.2) and is_equal_approx(forest.material_buy_price("base:copper") * 2, 9.6), "property procurement multipliers change missing-material cost")
 
 	var material_trade := GameSimulation.new(registry)
 	material_trade.new_game("base:first_sparks", 6060, "base:outskirts")
@@ -520,15 +446,10 @@ func _run_tests() -> void:
 	(material_trade.state.stations as Array).append({"id":"station_4", "type":"base:stock_shelves", "position":[9, 6]})
 	_check(material_trade.material_capacity() == 40 and material_trade.material_free_capacity("base:copper") == 28, "a second shelf adds twenty spaces to every raw material limit")
 	(material_trade.state.stations as Array).pop_back()
-	(material_trade.state.inventory["base:copper"] as Dictionary).quantity = 0
-	material_trade.state.cash = 1000.0
-	_check(bool(material_trade.execute(GameCommand.purchase_material("base:copper", 20)).ok), "manual material purchase can fill storage exactly to its limit")
-	var cash_at_limit := float(material_trade.state.cash)
-	_check(not bool(material_trade.execute(GameCommand.purchase_material("base:copper", 1)).ok) and is_equal_approx(float(material_trade.state.cash), cash_at_limit), "material purchases above the free capacity are rejected in full")
-	var awareness_before_raw_sale := int(material_trade.state.market_units_sold)
-	var raw_revenue_before := float(material_trade.state.raw_material_revenue)
-	_check(bool(material_trade.execute(GameCommand.sell_material("base:copper", 5)).ok) and is_equal_approx(float(material_trade.state.raw_material_revenue) - raw_revenue_before, 16.5), "manual raw material sale pays the quality- and property-adjusted price")
-	_check(int(material_trade.state.market_units_sold) == awareness_before_raw_sale, "raw material sales do not create artifact-market awareness")
+	var before_trade := JSON.stringify(material_trade.serialize())
+	_check(not bool(material_trade.execute(GameCommand.purchase_material("base:copper", 20)).ok), "manual material purchase is no longer supported")
+	_check(not bool(material_trade.execute(GameCommand.sell_material("base:copper", 5)).ok), "manual material sale is no longer supported")
+	_check(JSON.stringify(material_trade.serialize()) == before_trade, "rejected manual trading preserves the entire state")
 	material_trade.state.hour = 9 * 24
 	_check(is_equal_approx(material_trade.material_buy_price("base:oak"), 4.32) and is_equal_approx(material_trade.material_sell_price("base:oak", 0.64), 3.96), "active rich-harvest event changes matching material buy and sell prices")
 	var rich_harvest_events := material_trade.active_material_price_events("base:oak")
@@ -548,14 +469,14 @@ func _run_tests() -> void:
 	_check(float((overflow_sim.state.market_report as Dictionary).get("raw_material_revenue", 0.0)) > 0.0 and (overflow_sim.state.logbook as Array).any(func(event: Dictionary) -> bool: return str(event.type) == "RawMaterialOverflowSold" and str((event.payload as Dictionary).get("material_id", "")) == "base:spring_water"), "automatic overflow revenue is separated in the daily report and summarized in the logbook")
 
 	var overfull_save := material_trade.serialize()
-	overfull_save.save_version = 4
+	overfull_save.save_version = GameSimulation.SAVE_VERSION
 	(overfull_save.inventory["base:copper"] as Dictionary).quantity = 55
-	overfull_save.erase("raw_material_revenue")
-	overfull_save.erase("artifact_revenue")
-	overfull_save.erase("raw_material_sales_today")
+
+
+
 	var overfull_restored := GameSimulation.new(registry)
-	_check(bool(overfull_restored.restore(overfull_save).ok) and int((overfull_restored.state.inventory["base:copper"] as Dictionary).quantity) == 55, "legacy over-capacity material stock migrates without loss or forced sale")
-	_check(not bool(overfull_restored.execute(GameCommand.purchase_material("base:copper", 1)).ok), "new purchases stay blocked while a migrated material remains over capacity")
+	_check(bool(overfull_restored.restore(overfull_save).ok) and int((overfull_restored.state.inventory["base:copper"] as Dictionary).quantity) == 55, "over-capacity material stock restores without loss or forced sale")
+	_check(not bool(overfull_restored.execute(GameCommand.purchase_material("base:copper", 1)).ok), "new purchases stay blocked while a restored material remains over capacity")
 
 	var resize_sim := GameSimulation.new(registry)
 	resize_sim.new_game("base:first_sparks", 42, "base:outskirts")
@@ -581,6 +502,7 @@ func _run_tests() -> void:
 
 	var sources_sim := GameSimulation.new(registry)
 	sources_sim.new_game("base:first_sparks", 711, "base:outskirts")
+	sources_sim.execute(GameCommand.assign_staff("base:torben", ""))
 	(sources_sim.state.sources[1] as Dictionary).reserve = 0.0
 	for _hour: int in 24:
 		sources_sim.tick()
@@ -596,26 +518,6 @@ func _run_tests() -> void:
 		spirit_sim.tick()
 	var spirit_inventory: Dictionary = spirit_sim.state.inventory["base:spirit_essence"]
 	_check(int(spirit_inventory.quantity) == 1 and is_equal_approx(float(spirit_inventory.quality), 0.78), "cemetery spirit source applies yield, regeneration, and quality bonuses")
-
-	var v1_save := saved.duplicate(true)
-	v1_save.save_version = 1
-	v1_save.erase("property_id")
-	v1_save.erase("sources")
-	v1_save.erase("applicants")
-	v1_save.erase("dismissed_until")
-	v1_save.erase("next_applicant_refresh_day")
-	v1_save.rooms = (v1_save.rooms as Array).filter(func(room: Dictionary) -> bool: return str(room.type) != "base:residence")
-	for index: int in (v1_save.staff as Array).size():
-		var legacy_entry: Dictionary = v1_save.staff[index]
-		var station_id := str(legacy_entry.get("station_id", ""))
-		legacy_entry.erase("station_id")
-		legacy_entry.assignment = "research" if station_id == "station_1" else ("production" if station_id == "station_2" else "available")
-		v1_save.staff[index] = legacy_entry
-	var migrated := GameSimulation.new(registry)
-	var migration_result := migrated.restore(v1_save)
-	_check(bool(migration_result.ok) and str(migrated.state.property_id) == "base:outskirts", "version-one save migrates to the outskirts property: %s" % migration_result)
-	_check(migrated.housing_capacity() >= 4 and (migrated.state.sources as Array).size() == 4, "migration adds a free residence and resource sources")
-	_check((migrated.state.staff as Array).all(func(entry: Dictionary) -> bool: return entry.has("station_id")), "legacy assignments migrate to concrete stations or available")
 
 	for economy_property: String in ["base:outskirts", "base:cemetery", "base:deep_forest"]:
 		var economy_sim := GameSimulation.new(registry)
@@ -637,25 +539,26 @@ func _run_tests() -> void:
 	main_ui._start_new_game("base:outskirts")
 	await process_frame
 	_check(main_ui.tab_roots.has("production") and (main_ui.live_production_widgets as Dictionary).size() == 1, "management UI builds one live production card for the starting workbench")
-	_check((main_ui.live_research_bars as Dictionary).size() >= 3, "research UI exposes live progress bars")
+	_check((main_ui.live_research_bars as Dictionary).size() >= 1, "selected research exposes a live progress bar")
 	var locked_complex_options: Array[Node] = (main_ui.tab_roots["blueprints"] as Node).find_children("*", "OptionButton", true, false).filter(func(option: Node) -> bool: return (option as OptionButton).disabled and str((option as OptionButton).tooltip_text).contains("Komplexe Baupläne"))
-	_check(locked_complex_options.size() == 2, "blueprint UI visibly locks both complex recipe slots behind Complex Blueprints research")
+	_check(locked_complex_options.size() == 1, "blueprint UI visibly locks the secondary effect slot behind Complex Blueprints research")
 	var wage_sliders: Array[Node] = (main_ui.tab_roots["personnel"] as Node).find_children("*", "HSlider", true, false)
 	_check(not wage_sliders.is_empty() and is_equal_approx(float((wage_sliders[0] as HSlider).min_value), 80.0) and is_equal_approx(float((wage_sliders[0] as HSlider).max_value), 120.0), "personnel UI exposes the global eighty-to-one-hundred-twenty-percent wage slider")
 	(main_ui.simulation.state.unlocked as Dictionary)["base:complex_blueprints"] = true
 	(main_ui.simulation.state.unlocked as Dictionary)["base:warding_rune"] = true
-	var visible_recipe_result: Dictionary = main_ui.simulation.execute(GameCommand.create_blueprint({"name":"Visible Complex Recipe", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "secondary_effect_id":"base:warding_rune", "modifier_ids":["base:balanced"], "material_id":"base:oak", "secondary_material_id":"base:silver"}))
+	var visible_recipe_result: Dictionary = main_ui.simulation.execute(GameCommand.create_blueprint({"name":"Visible Complex Recipe", "body_id":"base:simple_charm", "effect_id":"base:minor_light", "secondary_effect_id":"base:warding_rune", "modifier_ids":["base:balanced"], "material_id":"base:copper"}))
 	main_ui._refresh_all_tabs()
 	await process_frame
 	var unlocked_blueprint_options: Array[Node] = (main_ui.tab_roots["blueprints"] as Node).find_children("*", "OptionButton", true, false)
-	_check(unlocked_blueprint_options.size() == 7 and unlocked_blueprint_options.all(func(option: Node) -> bool: return not (option as OptionButton).disabled), "complex recipe slots become selectable after their research unlock")
+	_check(unlocked_blueprint_options.size() == 5 and unlocked_blueprint_options.all(func(option: Node) -> bool: return not (option as OptionButton).disabled), "complex recipe slots become selectable after their research unlock")
 	var view_buttons := main_ui.find_children("*", "Button", true, false).filter(func(button: Node) -> bool: return str((button as Button).text) in ["Ansehen", "View"])
 	_check(bool(visible_recipe_result.ok) and not view_buttons.is_empty(), "saved complex blueprints provide a view button for their complete composition")
 	var recipe_labels: Array[Node] = (main_ui.tab_roots["blueprints"] as Node).find_children("*", "Label", true, false)
-	_check(recipe_labels.any(func(label: Node) -> bool: return str((label as Label).text).contains("Zusatzmaterial Silber") and str((label as Label).text).contains("2× Eichenholz + 1× Silber")), "saved recipe details expose the additional material and exact two-to-one mixture")
+	_check(recipe_labels.any(func(label: Node) -> bool: return str((label as Label).text).contains("Basismaterial: 2× Kupfer")), "saved recipe details expose the fixed base material and consumption")
 	main_ui.queue_free()
 	await process_frame
 	preload("res://tests/test_safety.gd").run(registry, _check)
+	preload("res://tests/test_research_expansion.gd").run(registry, _check)
 
 	if failures == 0:
 		print("PASS – all tests succeeded")
@@ -677,3 +580,74 @@ func _contains_all_for_test(container: Variant, required: Array) -> bool:
 		if not (container as Array).has(value):
 			return false
 	return true
+
+func _test_fixed_materials(registry: ContentRegistry) -> void:
+	for property: Dictionary in registry.all("properties"):
+		var sim := GameSimulation.new(registry)
+		sim.new_game("base:first_sparks", 20260921, str(property.id))
+		_check(sim.has_storage_worker() and str(sim.state.staff[0].station_id) == "station_1" and str(sim.state.staff[1].station_id) == "station_3" and str(sim.state.staff[2].station_id) == "station_2", "%s starts with research, production and storage assigned" % property.id)
+		var created := sim.execute(GameCommand.create_blueprint({"body_id":"base:simple_charm", "effect_id":"base:minor_light"}))
+		_check(bool(created.ok), "blueprint creation derives material without a material payload")
+		var id := str(created.blueprint_id)
+		sim.state.inventory["base:copper"].quantity = 0
+		sim.execute(GameCommand.configure_production("station_2", id))
+		sim.execute(GameCommand.set_production_enabled("station_2", true))
+		var cash := float(sim.state.cash)
+		sim.tick()
+		_check(sim.state.production_lines["station_2"].material_reserved and is_equal_approx(cash - float(sim.state.cash), 26.0 + sim.material_buy_price("base:copper") * 2), "starting storage staff buy missing production materials at the property price")
+		var saved := sim.serialize()
+		var restored := GameSimulation.new(registry)
+		_check(bool(restored.restore(saved).ok) and JSON.stringify(restored.serialize()) == JSON.stringify(saved), "running production and fixed materials survive an exact save roundtrip")
+		sim.tick()
+		restored.tick()
+		_check(JSON.stringify(restored.serialize()) == JSON.stringify(sim.serialize()), "restored fixed-material production continues deterministically")
+		var before := JSON.stringify(restored.serialize())
+		for field: String in ["material_id", "secondary_material_id", "computed", "reservation", "save_version"]:
+			var corrupt := saved.duplicate(true)
+			match field:
+				"material_id": corrupt.blueprints[id].material_id = "base:silver"
+				"secondary_material_id": corrupt.blueprints[id].secondary_material_id = "base:silver"
+				"computed": corrupt.blueprints[id].computed.material_requirements[0].material_id = "base:silver"
+				"reservation": corrupt.production_lines["station_2"].reserved_materials[0].material_id = "base:silver"
+				"save_version": corrupt.save_version = 10
+			_check(not bool(restored.restore(corrupt).ok) and JSON.stringify(restored.serialize()) == before, "invalid %s is rejected without changing the running game" % field)
+	var sim := GameSimulation.new(registry)
+	sim.new_game("base:first_sparks", 20260921)
+	for body: Dictionary in registry.all("bodies"):
+		sim.state.unlocked[str(body.id)] = true
+		var preview := sim.preview_blueprint({"body_id":str(body.id), "effect_id":"base:minor_light"})
+		_check(bool(preview.valid) and str(preview.material_id) == str(body.base_material_id) and preview.material_requirements.size() == 1 and int(preview.material_requirements[0].quantity) == 2, "%s always consumes two units of its fixed base material" % body.id)
+	var before := JSON.stringify(sim.serialize())
+	for extra: Dictionary in [{"material_id":"base:iron"}, {"secondary_material_id":"base:silver"}]:
+		var recipe := {"body_id":"base:simple_charm", "effect_id":"base:minor_light"}
+		recipe.merge(extra)
+		_check(not bool(sim.execute(GameCommand.create_blueprint(recipe)).ok) and JSON.stringify(sim.serialize()) == before, "material overrides are rejected atomically")
+	var recipe := {"body_id":"base:simple_charm", "effect_id":"base:minor_light", "material_id":"base:copper"}
+	_check(bool(sim.execute(GameCommand.create_blueprint(recipe)).ok), "an explicit matching base material remains accepted")
+	for initial: int in [0, 19, 20, 25]:
+		var harvest := GameSimulation.new(registry)
+		harvest.new_game("base:first_sparks", 20260921)
+		harvest.state.inventory["base:spring_water"].quantity = initial
+		var gold := float(harvest.state.cash)
+		var sales := int(harvest.state.market_units_sold)
+		harvest._tick_sources()
+		var overflow := maxi(0, 2 - maxi(0, 20 - initial))
+		var stored := mini(2, maxi(0, 20 - initial))
+		_check(int(harvest.state.inventory["base:spring_water"].quantity) == initial + stored, "harvesting preserves existing stock and fills only free capacity (%d)" % initial)
+		_check(is_equal_approx(float(harvest.state.cash) - gold, snappedf(overflow * harvest.material_sell_price("base:spring_water", 0.66), 0.01)) and int(harvest.state.market_units_sold) == sales, "only new harvest overflow earns raw-material revenue (%d)" % initial)
+		gold = float(harvest.state.cash)
+		harvest._run_market()
+		harvest._run_market()
+		_check(is_equal_approx(float(harvest.state.cash), gold), "daily reporting does not credit overflow revenue twice")
+		harvest.execute(GameCommand.assign_staff("base:torben", ""))
+		var stock_before := JSON.stringify(harvest.state.inventory)
+		harvest._tick_sources()
+		_check(JSON.stringify(harvest.state.inventory) == stock_before and is_equal_approx(float(harvest.state.cash), gold), "unstaffed storage neither harvests nor sells")
+	var supplied := GameSimulation.new(registry)
+	supplied.new_game("base:first_sparks", 20260921)
+	supplied.execute(GameCommand.assign_staff("base:torben", ""))
+	var id := str(supplied.execute(GameCommand.create_blueprint(recipe)).blueprint_id)
+	supplied.execute(GameCommand.configure_production("station_2", id))
+	supplied.execute(GameCommand.set_production_enabled("station_2", true))
+	supplied.tick()
+	_check(supplied.state.production_lines["station_2"].material_reserved and int(supplied.state.inventory["base:copper"].quantity) == 10, "existing stock supports production without storage staff")
